@@ -5,6 +5,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { HybridSignalingClient } from "@/lib/webrtc/signaling";
+import {
+  type RecordingQuality,
+  QUALITY_CONFIGS,
+  getSupportedVideoMimeType,
+} from "@/lib/webrtc/quality";
 
 interface SessionItem {
   id: string;
@@ -19,7 +24,8 @@ export default function LiveMonitoringPage() {
   const [isMuted, setIsMuted] = React.useState(false);
   const [hasAudioTrack, setHasAudioTrack] = React.useState(false);
 
-  // Monitor-side Local MP4 Recording States (Medium Quality - Storage Saver)
+  // Monitor-side Local MP4 Recording States with Quality Selection
+  const [recordingQuality, setRecordingQuality] = React.useState<RecordingQuality>("1080p");
   const [isRecordingStream, setIsRecordingStream] = React.useState(false);
   const [recordingSeconds, setRecordingSeconds] = React.useState(0);
 
@@ -157,7 +163,7 @@ export default function LiveMonitoringPage() {
     };
   };
 
-  // Start Monitor Stream Recording in MP4 Medium Quality (Storage Saver)
+  // Start Monitor Stream Recording in Selected Quality (Default: Full HD 1080p)
   const startStreamRecording = () => {
     if (!videoRef.current || !videoRef.current.srcObject) {
       toast.error("No active video feed to record. Connect to camera first.");
@@ -170,27 +176,15 @@ export default function LiveMonitoringPage() {
       return;
     }
 
-    // Determine optimal MP4 format supported by browser
-    let selectedMimeType = "video/webm";
-    let fileExtension = "mp4";
-
-    if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1")) {
-      selectedMimeType = "video/mp4;codecs=avc1";
-      fileExtension = "mp4";
-    } else if (MediaRecorder.isTypeSupported("video/mp4")) {
-      selectedMimeType = "video/mp4";
-      fileExtension = "mp4";
-    } else if (MediaRecorder.isTypeSupported("video/webm;codecs=h264")) {
-      selectedMimeType = "video/webm;codecs=h264";
-      fileExtension = "mp4";
-    }
+    const { mimeType: selectedMimeType, fileExtension } = getSupportedVideoMimeType();
+    const qualityConfig = QUALITY_CONFIGS[recordingQuality];
 
     try {
       recordedChunksRef.current = [];
       const recorder = new MediaRecorder(stream, {
         mimeType: selectedMimeType,
-        videoBitsPerSecond: 1000000, // Medium Quality (1 Mbps) - saves ~80% storage
-        audioBitsPerSecond: 64000, // 64 kbps clear speech
+        videoBitsPerSecond: qualityConfig.videoBitrate,
+        audioBitsPerSecond: 64000,
       });
 
       recorder.ondataavailable = (event) => {
@@ -204,7 +198,7 @@ export default function LiveMonitoringPage() {
         const mime = selectedMimeType.includes("mp4") ? "video/mp4" : "video/webm";
         const blob = new Blob(recordedChunksRef.current, { type: mime });
         const dateStr = new Date().toISOString().slice(0, 10);
-        const fileName = `cctv_record_${dateStr}_${Date.now()}.${fileExtension}`;
+        const fileName = `cctv_${recordingQuality}_${dateStr}_${Date.now()}.${fileExtension}`;
 
         // Auto download to PC
         const url = URL.createObjectURL(blob);
@@ -230,14 +224,14 @@ export default function LiveMonitoringPage() {
               startedAt: new Date(recordingStartTimeRef.current).toISOString(),
               endedAt: new Date().toISOString(),
               saveStatus: "downloaded",
-              saveLocationDescription: `Saved locally as optimized MP4 (${(blob.size / 1024 / 1024).toFixed(1)} MB)`,
+              saveLocationDescription: `Saved locally as ${qualityConfig.shortLabel} MP4 (${(blob.size / 1024 / 1024).toFixed(1)} MB)`,
             }),
           });
         } catch (e) {
           console.error("Failed to save metadata", e);
         }
 
-        toast.success(`Recording saved as ${fileName} (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+        toast.success(`Recording saved as ${fileName} (${qualityConfig.shortLabel}, ${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
       };
 
       recorder.start(1000);
@@ -245,7 +239,7 @@ export default function LiveMonitoringPage() {
       recordingStartTimeRef.current = Date.now();
       setIsRecordingStream(true);
       setRecordingSeconds(0);
-      toast.info(`Recording started in MP4 Medium Quality (Storage Saver Mode)`);
+      toast.info(`Recording started in ${qualityConfig.label}`);
 
       recordingTimerRef.current = setInterval(() => {
         setRecordingSeconds((prev) => prev + 1);
@@ -281,6 +275,8 @@ export default function LiveMonitoringPage() {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const activeQualityConfig = QUALITY_CONFIGS[recordingQuality];
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
       {/* Header */}
@@ -290,7 +286,7 @@ export default function LiveMonitoringPage() {
             Live CCTV Monitor
           </h1>
           <p className="text-sm text-[#64748B] mt-1">
-            Real-time peer-to-peer CCTV camera stream with MP4 recording.
+            Real-time peer-to-peer CCTV camera stream with configurable MP4 quality recording.
           </p>
         </div>
 
@@ -343,14 +339,14 @@ export default function LiveMonitoringPage() {
           {isRecordingStream && (
             <div className="absolute top-4 left-4 flex items-center space-x-2 bg-red-600/90 text-white px-3.5 py-1.5 rounded-full text-xs font-bold animate-pulse shadow-lg">
               <span className="w-2.5 h-2.5 rounded-full bg-white"></span>
-              <span>REC: {formatTimer(recordingSeconds)} (MP4 Medium)</span>
+              <span>REC: {formatTimer(recordingSeconds)} ({activeQualityConfig.shortLabel})</span>
             </div>
           )}
 
           {/* CCTV Quality Tag */}
           {connectionStatus === "Live Stream Active" && (
             <div className="absolute top-4 right-4 flex items-center space-x-1.5 bg-black/60 text-white px-3 py-1 rounded-full text-[10px] font-semibold border border-white/20 backdrop-blur-sm">
-              <span>CCTV LIVE (720p / MP4 OPTIMIZED)</span>
+              <span>CCTV LIVE ({activeQualityConfig.shortLabel})</span>
             </div>
           )}
         </div>
@@ -372,6 +368,22 @@ export default function LiveMonitoringPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* Recording Quality Dropdown Selector */}
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-semibold text-[#64748B]">Quality:</span>
+              <select
+                value={recordingQuality}
+                onChange={(e) => setRecordingQuality(e.target.value as RecordingQuality)}
+                disabled={isRecordingStream}
+                className="h-9 rounded-xl bg-[#E8EAF0] border border-white/80 px-2.5 text-xs font-semibold text-[#172033] shadow-[inset_2px_2px_4px_rgba(163,177,198,0.35),inset_-2px_-2px_4px_rgba(255,255,255,0.95)] focus:outline-none"
+                title="Select recording quality (Default: Full HD 1080p)"
+              >
+                <option value="1080p">Full HD (1080p) [Default]</option>
+                <option value="720p">HD (720p) [Balanced]</option>
+                <option value="480p">Medium (480p) [Storage Saver]</option>
+              </select>
+            </div>
+
             {/* Audio Toggle Button */}
             <Button
               variant="outline"
@@ -390,7 +402,7 @@ export default function LiveMonitoringPage() {
               {isMuted ? "Unmute Audio" : "Mute Audio"}
             </Button>
 
-            {/* MP4 Medium Quality Recording Button */}
+            {/* MP4 Recording Button */}
             {isRecordingStream ? (
               <Button variant="danger" size="sm" onClick={stopStreamRecording}>
                 Stop &amp; Save Recording
@@ -401,9 +413,9 @@ export default function LiveMonitoringPage() {
                 size="sm"
                 onClick={startStreamRecording}
                 disabled={connectionStatus !== "Live Stream Active"}
-                title="Records stream in optimized MP4 format to save storage"
+                title={`Records live CCTV stream in ${activeQualityConfig.shortLabel} MP4`}
               >
-                Start Recording (MP4 Medium)
+                Record ({activeQualityConfig.shortLabel})
               </Button>
             )}
 

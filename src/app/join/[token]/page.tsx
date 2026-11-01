@@ -7,6 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import type { DataChannelMessage } from "@/types/webrtc";
 import { HybridSignalingClient } from "@/lib/webrtc/signaling";
+import {
+  type RecordingQuality,
+  QUALITY_CONFIGS,
+  getSupportedVideoMimeType,
+} from "@/lib/webrtc/quality";
 
 function DeviceJoinPageContent() {
   const params = useParams();
@@ -24,13 +29,16 @@ function DeviceJoinPageContent() {
   // Camera facing mode: "user" (front/selfie camera) or "environment" (back camera)
   const [facingMode, setFacingMode] = React.useState<"user" | "environment">("user");
 
+  // Recording Quality: Default to Full HD 1080p
+  const [recordingQuality, setRecordingQuality] = React.useState<RecordingQuality>("1080p");
+
   // Media & Streaming states
   const [localStream, setLocalStream] = React.useState<MediaStream | null>(null);
   const [connectionStatus, setConnectionStatus] = React.useState<string>("Idle");
   const [isBlackScreen, setIsBlackScreen] = React.useState(false);
   const [isMicMuted, setIsMicMuted] = React.useState(false);
 
-  // Local MP4 Recording States (Medium Quality - Storage Saver)
+  // Local MP4 Recording States with Configurable Quality
   const [isMobileRecording, setIsMobileRecording] = React.useState(false);
   const [mobileRecordSeconds, setMobileRecordSeconds] = React.useState(0);
 
@@ -106,12 +114,14 @@ function DeviceJoinPageContent() {
         }),
       });
 
-      // Browser getUserMedia - Front Camera by default (Medium Quality 720p)
+      const qualityConfig = QUALITY_CONFIGS[recordingQuality];
+
+      // Browser getUserMedia - Front Camera by default with chosen resolution
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: facingMode,
-          width: { ideal: 1280, max: 1280 },
-          height: { ideal: 720, max: 720 },
+          width: { ideal: qualityConfig.width, max: 1920 },
+          height: { ideal: qualityConfig.height, max: 1080 },
         },
         audio: audioAllowed,
       });
@@ -124,7 +134,7 @@ function DeviceJoinPageContent() {
       setConsented(true);
       setConnectionStatus("Initializing WebRTC stream...");
       initWebRTC(stream);
-      toast.success("Camera started! Live feed broadcasting to monitor.");
+      toast.success(`Camera started in ${qualityConfig.label}! Feed broadcasting to monitor.`);
     } catch (err: any) {
       toast.error(err.name === "NotAllowedError" ? "Camera permission denied by browser" : err.message);
       setConnectionStatus("Camera access failed");
@@ -213,11 +223,12 @@ function DeviceJoinPageContent() {
     setFacingMode(nextMode);
 
     try {
+      const qualityConfig = QUALITY_CONFIGS[recordingQuality];
       const newStream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: nextMode,
-          width: { ideal: 1280, max: 1280 },
-          height: { ideal: 720, max: 720 },
+          width: { ideal: qualityConfig.width, max: 1920 },
+          height: { ideal: qualityConfig.height, max: 1080 },
         },
         audio: audioAllowed && !isMicMuted,
       });
@@ -259,35 +270,21 @@ function DeviceJoinPageContent() {
     }
   };
 
-  // 7. Local MP4 Medium Quality Recording on Mobile
+  // 7. Local MP4 Recording on Mobile with Configurable Quality
   const startLocalRecording = () => {
     if (!localStream) {
       toast.error("Camera is not active.");
       return;
     }
 
-    let selectedMimeType = "video/mp4";
-    let fileExtension = "mp4";
-
-    if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1")) {
-      selectedMimeType = "video/mp4;codecs=avc1";
-      fileExtension = "mp4";
-    } else if (MediaRecorder.isTypeSupported("video/mp4")) {
-      selectedMimeType = "video/mp4";
-      fileExtension = "mp4";
-    } else if (MediaRecorder.isTypeSupported("video/webm;codecs=h264")) {
-      selectedMimeType = "video/webm;codecs=h264";
-      fileExtension = "mp4";
-    } else {
-      selectedMimeType = "video/webm";
-      fileExtension = "webm";
-    }
+    const { mimeType: selectedMimeType, fileExtension } = getSupportedVideoMimeType();
+    const qualityConfig = QUALITY_CONFIGS[recordingQuality];
 
     try {
       recordedChunksRef.current = [];
       const recorder = new MediaRecorder(localStream, {
         mimeType: selectedMimeType,
-        videoBitsPerSecond: 1000000, // Medium Quality (1 Mbps) - saves ~80% storage
+        videoBitsPerSecond: qualityConfig.videoBitrate,
         audioBitsPerSecond: 64000,
       });
 
@@ -301,7 +298,7 @@ function DeviceJoinPageContent() {
         const mime = selectedMimeType.includes("mp4") ? "video/mp4" : "video/webm";
         const blob = new Blob(recordedChunksRef.current, { type: mime });
         const dateStr = new Date().toISOString().slice(0, 10);
-        const fileName = `phone_cctv_${dateStr}_${Date.now()}.${fileExtension}`;
+        const fileName = `phone_cctv_${recordingQuality}_${dateStr}_${Date.now()}.${fileExtension}`;
 
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -312,7 +309,7 @@ function DeviceJoinPageContent() {
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 5000);
 
-        toast.success(`Video saved as ${fileName} (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+        toast.success(`Video saved as ${fileName} (${qualityConfig.shortLabel}, ${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
       };
 
       recorder.start(1000);
@@ -320,7 +317,7 @@ function DeviceJoinPageContent() {
       recordStartTimeRef.current = Date.now();
       setIsMobileRecording(true);
       setMobileRecordSeconds(0);
-      toast.info("Recording started in MP4 Medium Quality");
+      toast.info(`Recording started in ${qualityConfig.label}`);
 
       recordTimerRef.current = setInterval(() => {
         setMobileRecordSeconds((prev) => prev + 1);
@@ -354,6 +351,8 @@ function DeviceJoinPageContent() {
     toast.info("Camera disconnected.");
   };
 
+  const activeQuality = QUALITY_CONFIGS[recordingQuality];
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#E8EAF0] flex items-center justify-center p-4">
@@ -382,7 +381,7 @@ function DeviceJoinPageContent() {
 
   return (
     <div className="min-h-screen bg-[#E8EAF0] text-[#172033] flex flex-col justify-center p-4 sm:p-8">
-      {/* Stealth Black Screen Overlay */}
+      {/* Stealth Black Screen Overlay with Active Recording Support */}
       {isBlackScreen && (
         <div
           onClick={() => setIsBlackScreen(false)}
@@ -391,14 +390,16 @@ function DeviceJoinPageContent() {
           <div className="text-[11px] text-zinc-800 tracking-widest font-mono text-center">
             STEALTH DISPLAY SLEEP (CLICK ANYWHERE TO WAKE)
           </div>
+
           <div className="flex flex-col items-center space-y-2">
             <div className="w-2.5 h-2.5 rounded-full bg-red-950/40 animate-ping"></div>
             {isMobileRecording && (
-              <span className="text-[10px] text-zinc-900 font-mono">
-                REC: {formatTimer(mobileRecordSeconds)} (MP4)
+              <span className="text-[11px] text-red-900 font-mono tracking-wider">
+                ● REC: {formatTimer(mobileRecordSeconds)} ({activeQuality.shortLabel})
               </span>
             )}
           </div>
+
           <div className="text-[10px] text-zinc-900 font-mono text-center">
             LIVE CCTV STREAM ACTIVE
           </div>
@@ -425,9 +426,27 @@ function DeviceJoinPageContent() {
               <div className="p-4 bg-[#E8EAF0] rounded-xl shadow-[inset_3px_3px_6px_rgba(163,177,198,0.35),inset_-3px_-3px_6px_rgba(255,255,255,0.95)] text-xs text-[#64748B] space-y-2">
                 <p className="font-semibold text-[#172033]">CCTV Live Streaming Mode:</p>
                 <p>• Stream live video &amp; audio directly to your laptop monitor.</p>
-                <p>• Quality: <strong>Medium Quality MP4 (Storage Saver)</strong>.</p>
                 <p>• Default camera: <strong>Front (Selfie) Camera</strong>.</p>
-                <p>• Tap &ldquo;Black Screen&rdquo; anytime to dim the display while continuing stream.</p>
+                <p>• You can record in MP4 and tap &ldquo;Black Screen&rdquo; to record in sleep mode.</p>
+              </div>
+
+              {/* Quality Selector */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-[#172033] block">
+                  Recording &amp; Stream Quality:
+                </label>
+                <select
+                  value={recordingQuality}
+                  onChange={(e) => setRecordingQuality(e.target.value as RecordingQuality)}
+                  className="w-full h-11 rounded-xl bg-[#E8EAF0] border border-white/80 px-3 text-xs font-semibold text-[#172033] shadow-[inset_2px_2px_5px_rgba(163,177,198,0.35),inset_-2px_-2px_5px_rgba(255,255,255,0.95)] focus:outline-none"
+                >
+                  <option value="1080p">Full HD (1080p) [Default]</option>
+                  <option value="720p">HD (720p) [Balanced]</option>
+                  <option value="480p">Medium (480p) [Storage Saver]</option>
+                </select>
+                <p className="text-[11px] text-[#64748B]">
+                  {activeQuality.description}
+                </p>
               </div>
 
               {/* Toggles */}
@@ -489,28 +508,41 @@ function DeviceJoinPageContent() {
               {isMobileRecording && (
                 <div className="absolute bottom-4 left-4 flex items-center space-x-2 bg-red-600/90 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse shadow-md">
                   <span className="w-2 h-2 rounded-full bg-white"></span>
-                  <span>REC: {formatTimer(mobileRecordSeconds)} (MP4)</span>
+                  <span>REC: {formatTimer(mobileRecordSeconds)} ({activeQuality.shortLabel})</span>
                 </div>
               )}
 
-              {/* Facing Mode Badge */}
+              {/* Facing & Quality Badge */}
               <div className="absolute top-4 right-4 flex items-center space-x-1.5 bg-black/60 text-white px-3 py-1 rounded-full text-[10px] font-semibold border border-white/20 backdrop-blur-sm">
                 <span>{facingMode === "user" ? "FRONT CAM" : "BACK CAM"}</span>
+                <span>•</span>
+                <span>{activeQuality.shortLabel}</span>
               </div>
             </div>
 
             {/* Quick CCTV Controls */}
             <div className="p-5 bg-[#E8EAF0] rounded-2xl border border-white/80 shadow-[6px_6px_14px_rgba(163,177,198,0.4),-6px_-6px_14px_rgba(255,255,255,0.95)] space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <p className="text-xs font-bold text-[#172033]">CCTV Device Controls</p>
                   <p className="text-[11px] text-[#64748B]">
                     Status: <span className="font-semibold text-[#F28C28]">{connectionStatus}</span>
                   </p>
                 </div>
-                <div className="flex items-center space-x-1.5">
-                  <span className="w-2 h-2 rounded-full bg-[#22A06B] animate-ping"></span>
-                  <span className="text-[10px] font-bold text-[#22A06B]">BROADCASTING</span>
+
+                {/* Quality Selector while active */}
+                <div className="flex items-center space-x-2">
+                  <span className="text-[11px] font-semibold text-[#64748B]">Quality:</span>
+                  <select
+                    value={recordingQuality}
+                    onChange={(e) => setRecordingQuality(e.target.value as RecordingQuality)}
+                    disabled={isMobileRecording}
+                    className="h-8 rounded-lg bg-[#E8EAF0] border border-white/80 px-2 text-[11px] font-semibold text-[#172033] shadow-[inset_2px_2px_4px_rgba(163,177,198,0.35),inset_-2px_-2px_4px_rgba(255,255,255,0.95)] focus:outline-none"
+                  >
+                    <option value="1080p">Full HD (1080p) [Default]</option>
+                    <option value="720p">HD (720p) [Balanced]</option>
+                    <option value="480p">Medium (480p) [Storage Saver]</option>
+                  </select>
                 </div>
               </div>
 
@@ -542,9 +574,9 @@ function DeviceJoinPageContent() {
                     size="sm"
                     onClick={startLocalRecording}
                     className="w-full text-xs font-semibold"
-                    title="Record camera feed locally in MP4 medium quality"
+                    title={`Record camera feed locally in ${activeQuality.shortLabel} MP4`}
                   >
-                    Record (MP4)
+                    Record ({activeQuality.shortLabel})
                   </Button>
                 )}
 
@@ -554,7 +586,7 @@ function DeviceJoinPageContent() {
                   size="sm"
                   onClick={() => setIsBlackScreen(true)}
                   className="w-full text-xs font-semibold"
-                  title="Turn screen black while camera continues streaming"
+                  title="Turn screen black while camera and recording continue"
                 >
                   Black Screen
                 </Button>
@@ -582,7 +614,7 @@ function DeviceJoinPageContent() {
               </div>
 
               <div className="p-3 bg-[#E8EAF0] rounded-xl shadow-[inset_2px_2px_5px_rgba(163,177,198,0.35),inset_-2px_-2px_5px_rgba(255,255,255,0.95)] text-[11px] text-[#64748B]">
-                💡 <strong>Storage Saver MP4:</strong> Recordings are saved with 1 Mbps bitrate, saving ~80% storage compared to high-bitrate video while keeping video smooth &amp; audio crystal clear.
+                💡 <strong>Record in Black Screen:</strong> You can click <strong>&ldquo;Record&rdquo;</strong> and then click <strong>&ldquo;Black Screen&rdquo;</strong>. The video will keep recording locally in {activeQuality.shortLabel} MP4 while the screen remains completely dark! Tap anywhere on the dark screen to return and save your recording.
               </div>
             </div>
           </div>
