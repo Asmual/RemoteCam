@@ -26,6 +26,7 @@ export default function SessionsPage() {
   const [generatedUrl, setGeneratedUrl] = React.useState<string | null>(null);
   const [generatedToken, setGeneratedToken] = React.useState<string | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
+  const [isDeleting, setIsDeleting] = React.useState<string | null>(null);
 
   const fetchSessions = async () => {
     try {
@@ -88,10 +89,63 @@ export default function SessionsPage() {
     }
   };
 
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to permanently delete this session from the database?")) {
+      return;
+    }
+
+    try {
+      setIsDeleting(id);
+      const res = await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success("Session permanently deleted from database");
+        fetchSessions();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to delete session");
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setIsDeleting(null);
+    }
+  };
+
+  const handleClearInactive = async () => {
+    const inactiveSessions = sessions.filter(
+      (s) => s.status === "revoked" || new Date(s.expiresAt) < new Date()
+    );
+
+    if (inactiveSessions.length === 0) {
+      toast.info("No expired or revoked sessions to clear.");
+      return;
+    }
+
+    if (!confirm(`Delete ${inactiveSessions.length} inactive/expired session(s) permanently?`)) {
+      return;
+    }
+
+    try {
+      let count = 0;
+      for (const s of inactiveSessions) {
+        const res = await fetch(`/api/sessions/${s.id}`, { method: "DELETE" });
+        if (res.ok) count++;
+      }
+      toast.success(`Cleared ${count} inactive session(s) from database`);
+      fetchSessions();
+    } catch (err: any) {
+      toast.error("Error during batch delete: " + err.message);
+    }
+  };
+
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     toast.success(`${label} copied to clipboard!`);
   };
+
+  const inactiveCount = sessions.filter(
+    (s) => s.status === "revoked" || new Date(s.expiresAt) < new Date()
+  ).length;
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -190,14 +244,29 @@ export default function SessionsPage() {
 
       {/* Sessions List */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg font-bold text-[#172033]">
-            Session History &amp; Join Links
-          </CardTitle>
-          <CardDescription className="text-xs text-[#64748B]">
-            All active, expired, and revoked connection sessions. You can copy any session link or token at any time.
-          </CardDescription>
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <CardTitle className="text-lg font-bold text-[#172033]">
+              Session History &amp; Join Links
+            </CardTitle>
+            <CardDescription className="text-xs text-[#64748B]">
+              Manage connection sessions. You can copy active links or permanently delete unwanted sessions from the database.
+            </CardDescription>
+          </div>
+
+          {inactiveCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearInactive}
+              className="text-xs text-red-600 hover:text-red-700"
+              title="Delete all expired and revoked sessions at once"
+            >
+              Clear Expired ({inactiveCount})
+            </Button>
+          )}
         </CardHeader>
+
         <CardContent>
           {loading ? (
             <div className="py-8 text-center text-xs text-[#64748B]">
@@ -221,9 +290,10 @@ export default function SessionsPage() {
                 </thead>
                 <tbody className="divide-y divide-white/40">
                   {sessions.map((s) => {
-                    const sessionUrl = s.joinUrl || `${PRODUCTION_APP_URL}/join/${s.id}`;
+                    const sessionUrl = `${PRODUCTION_APP_URL}/join/${s.id}`;
                     const isRevoked = s.status === "revoked";
                     const isExpired = new Date(s.expiresAt) < new Date();
+                    const isDeletingThis = isDeleting === s.id;
 
                     return (
                       <tr key={s.id} className="hover:bg-white/20">
@@ -262,7 +332,7 @@ export default function SessionsPage() {
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            {/* Copy Link Button - Always available */}
+                            {/* Copy Link Button */}
                             <Button
                               variant="outline"
                               size="sm"
@@ -282,15 +352,28 @@ export default function SessionsPage() {
                               Open
                             </Button>
 
-                            {!isRevoked && (
+                            {/* Revoke button (for active sessions) */}
+                            {!isRevoked && !isExpired && (
                               <Button
-                                variant="danger"
+                                variant="outline"
                                 size="sm"
                                 onClick={() => handleRevoke(s.id)}
+                                className="text-amber-600 hover:text-amber-700"
                               >
                                 Revoke
                               </Button>
                             )}
+
+                            {/* Delete button (Permanently removes from database) */}
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => handleDelete(s.id)}
+                              disabled={isDeletingThis}
+                              title="Permanently delete this session from database"
+                            >
+                              {isDeletingThis ? "Deleting..." : "Delete"}
+                            </Button>
                           </div>
                         </td>
                       </tr>
