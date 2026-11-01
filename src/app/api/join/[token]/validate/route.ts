@@ -30,25 +30,57 @@ export async function GET(
       },
     });
 
-    if (!joinToken) {
-      return NextResponse.json({ error: "Invalid or unrecognized join link" }, { status: 404 });
+    if (joinToken) {
+      if (joinToken.session.status === "revoked") {
+        return NextResponse.json({ error: "This session has been revoked by the owner" }, { status: 403 });
+      }
+
+      if (isExpired(joinToken.expiresAt)) {
+        return NextResponse.json({ error: "This join link has expired" }, { status: 410 });
+      }
+
+      return NextResponse.json({
+        valid: true,
+        sessionId: joinToken.session.id,
+        ownerName: joinToken.session.user.name,
+        ownerEmail: joinToken.session.user.email,
+        expiresAt: joinToken.expiresAt,
+      });
     }
 
-    if (joinToken.session.status === "revoked") {
-      return NextResponse.json({ error: "This session has been revoked by the owner" }, { status: 403 });
-    }
-
-    if (isExpired(joinToken.expiresAt)) {
-      return NextResponse.json({ error: "This join link has expired" }, { status: 410 });
-    }
-
-    return NextResponse.json({
-      valid: true,
-      sessionId: joinToken.session.id,
-      ownerName: joinToken.session.user.name,
-      ownerEmail: joinToken.session.user.email,
-      expiresAt: joinToken.expiresAt,
+    // Fallback: Check if the token provided is the Session ID itself
+    const directSession = await prisma.deviceSession.findUnique({
+      where: { id: token },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
     });
+
+    if (directSession) {
+      if (directSession.status === "revoked") {
+        return NextResponse.json({ error: "This session has been revoked by the owner" }, { status: 403 });
+      }
+
+      if (isExpired(directSession.expiresAt)) {
+        return NextResponse.json({ error: "This join link has expired" }, { status: 410 });
+      }
+
+      return NextResponse.json({
+        valid: true,
+        sessionId: directSession.id,
+        ownerName: directSession.user.name,
+        ownerEmail: directSession.user.email,
+        expiresAt: directSession.expiresAt,
+      });
+    }
+
+    return NextResponse.json({ error: "Invalid or unrecognized join link" }, { status: 404 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

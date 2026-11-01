@@ -22,14 +22,25 @@ export async function POST(
       include: { session: true },
     });
 
-    if (!joinToken) {
+    let targetSessionId = joinToken?.sessionId;
+
+    if (!targetSessionId) {
+      const directSession = await prisma.deviceSession.findUnique({
+        where: { id: token },
+      });
+      if (directSession) {
+        targetSessionId = directSession.id;
+      }
+    }
+
+    if (!targetSessionId) {
       return NextResponse.json({ error: "Session token not found" }, { status: 404 });
     }
 
     // Save consent record
     const consent = await prisma.consent.create({
       data: {
-        sessionId: joinToken.sessionId,
+        sessionId: targetSessionId,
         cameraAllowed: parsed.data.cameraAllowed,
         audioAllowed: parsed.data.audioAllowed,
         recordingAllowed: parsed.data.recordingAllowed,
@@ -39,13 +50,13 @@ export async function POST(
 
     // Update session status to connected
     await prisma.deviceSession.update({
-      where: { id: joinToken.sessionId },
+      where: { id: targetSessionId },
       data: { status: "connected", usageCount: { increment: 1 } },
     });
 
     await prisma.auditLog.create({
       data: {
-        sessionId: joinToken.sessionId,
+        sessionId: targetSessionId,
         eventType: "CONSENT_GRANTED",
         description: `Target device granted consent: Camera=${parsed.data.cameraAllowed}, Audio=${parsed.data.audioAllowed}, Recording=${parsed.data.recordingAllowed}`,
       },

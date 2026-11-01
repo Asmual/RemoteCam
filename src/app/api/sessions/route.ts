@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 import { generateSecureToken, hashToken } from "@/lib/security/token";
 import { createSessionSchema } from "@/lib/validation/schemas";
 
+const PRODUCTION_APP_URL = "https://remote-cam-asmual.vercel.app";
+
 export async function GET() {
   try {
     const sessions = await prisma.deviceSession.findMany({
@@ -19,7 +21,17 @@ export async function GET() {
       },
       orderBy: { createdAt: "desc" },
     });
-    return NextResponse.json({ sessions });
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_APP_URL;
+    const baseUrl = appUrl.replace(/\/$/, "");
+
+    const formattedSessions = sessions.map((s) => ({
+      ...s,
+      token: s.id,
+      joinUrl: `${baseUrl}/join/${s.id}`,
+    }));
+
+    return NextResponse.json({ sessions: formattedSessions });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -68,38 +80,20 @@ export async function POST(req: Request) {
       },
     });
 
-    const envAppUrl = process.env.NEXT_PUBLIC_APP_URL;
-    const host = req.headers.get("host") || "localhost:3000";
-    const protocol = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-    const baseUrl =
-      envAppUrl && !host.includes("localhost")
-        ? envAppUrl.replace(/\/$/, "")
-        : `${protocol}://${host}`;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_APP_URL;
+    const baseUrl = appUrl.replace(/\/$/, "");
     const joinUrl = `${baseUrl}/join/${rawToken}`;
-
-    // Calculate Wi-Fi local network IP for mobile device access
-    let localIp = "localhost";
-    const os = await import("os");
-    const nets = os.networkInterfaces();
-    for (const name of Object.keys(nets)) {
-      for (const net of nets[name] || []) {
-        if (net.family === "IPv4" && !net.internal) {
-          localIp = net.address;
-          break;
-        }
-      }
-    }
-
-    let mobileJoinUrl = `${protocol}://${localIp}:3000/join/${rawToken}`;
-    if (!host.includes("localhost") || (envAppUrl && !envAppUrl.includes("localhost"))) {
-      mobileJoinUrl = joinUrl;
-    }
+    const sessionJoinUrl = `${baseUrl}/join/${session.id}`;
 
     return NextResponse.json({
-      session,
+      session: {
+        ...session,
+        joinUrl: sessionJoinUrl,
+        token: rawToken,
+      },
       rawToken,
       joinUrl,
-      mobileJoinUrl,
+      sessionJoinUrl,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -7,6 +7,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 
 interface SessionItem {
   id: string;
+  token?: string;
+  joinUrl?: string;
   status: string;
   expiresAt: string;
   usageLimit: number;
@@ -15,12 +17,14 @@ interface SessionItem {
   createdAt: string;
 }
 
+const PRODUCTION_APP_URL = "https://remote-cam-asmual.vercel.app";
+
 export default function SessionsPage() {
   const [sessions, setSessions] = React.useState<SessionItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [expiryMinutes, setExpiryMinutes] = React.useState(60);
   const [generatedUrl, setGeneratedUrl] = React.useState<string | null>(null);
-  const [mobileUrl, setMobileUrl] = React.useState<string | null>(null);
+  const [generatedToken, setGeneratedToken] = React.useState<string | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
 
   const fetchSessions = async () => {
@@ -58,8 +62,8 @@ export default function SessionsPage() {
       }
 
       setGeneratedUrl(data.joinUrl);
-      setMobileUrl(data.mobileJoinUrl || null);
-      toast.success("Join links generated successfully!");
+      setGeneratedToken(data.rawToken);
+      toast.success("Live join link generated successfully!");
       fetchSessions();
     } catch (err: any) {
       toast.error(err.message);
@@ -72,7 +76,7 @@ export default function SessionsPage() {
     try {
       const res = await fetch(`/api/sessions/${id}/revoke`, { method: "POST" });
       if (res.ok) {
-        toast.success("Session revoked");
+        toast.success("Session revoked successfully");
         fetchSessions();
       } else {
         toast.error("Failed to revoke session");
@@ -82,11 +86,9 @@ export default function SessionsPage() {
     }
   };
 
-  const copyToClipboard = () => {
-    if (generatedUrl) {
-      navigator.clipboard.writeText(generatedUrl);
-      toast.success("Join URL copied to clipboard!");
-    }
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copied to clipboard!`);
   };
 
   return (
@@ -127,59 +129,56 @@ export default function SessionsPage() {
         <Card className="border-l-4 border-l-[#F28C28]">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-bold text-[#172033]">
-              Active Join Links Ready
+              Active Live Join Link Ready
             </CardTitle>
             <CardDescription className="text-xs text-[#64748B]">
-              Share the appropriate link with the camera device. Target user must grant camera permission.
+              Share this live production link with your iPhone or target camera device.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Mobile / Wi-Fi Link */}
-            {mobileUrl && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-[#172033]">
-                    Mobile / iPhone Wi-Fi Link (একই ওয়াইফাই-এ থাকা ফোনের জন্য):
-                  </span>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(mobileUrl);
-                      toast.success("Mobile link copied!");
-                    }}
-                    className="text-[#F28C28] font-bold hover:underline"
-                  >
-                    Copy Mobile Link
-                  </button>
-                </div>
-                <div className="p-3 bg-[#E8EAF0] rounded-xl shadow-[inset_3px_3px_6px_rgba(163,177,198,0.35),inset_-3px_-3px_6px_rgba(255,255,255,0.95)] break-all font-mono text-xs text-[#172033]">
-                  {mobileUrl}
-                </div>
-              </div>
-            )}
-
-            {/* Localhost Link */}
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-bold text-[#172033]">
-                  Localhost Link (এই ল্যাপটপের অন্য ট্যাবে টেস্ট করতে):
+                  Production Join URL:
                 </span>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(generatedUrl);
-                    toast.success("Local link copied!");
-                  }}
-                  className="text-[#F28C28] font-bold hover:underline"
-                >
-                  Copy Local Link
-                </button>
+                <div className="flex items-center gap-3">
+                  {generatedToken && (
+                    <button
+                      onClick={() => copyToClipboard(generatedToken, "Token")}
+                      className="text-[#64748B] hover:text-[#172033] font-semibold hover:underline"
+                    >
+                      Copy Token Only
+                    </button>
+                  )}
+                  <button
+                    onClick={() => copyToClipboard(generatedUrl, "Join Link")}
+                    className="text-[#F28C28] font-bold hover:underline"
+                  >
+                    Copy Full Link
+                  </button>
+                </div>
               </div>
-              <div className="p-3 bg-[#E8EAF0] rounded-xl shadow-[inset_3px_3px_6px_rgba(163,177,198,0.35),inset_-3px_-3px_6px_rgba(255,255,255,0.95)] break-all font-mono text-xs text-[#64748B]">
+              <div className="p-3 bg-[#E8EAF0] rounded-xl shadow-[inset_3px_3px_6px_rgba(163,177,198,0.35),inset_-3px_-3px_6px_rgba(255,255,255,0.95)] break-all font-mono text-xs text-[#172033]">
                 {generatedUrl}
               </div>
             </div>
 
             <div className="flex gap-2 justify-end pt-2">
-              <Button variant="secondary" size="sm" onClick={() => setGeneratedUrl(null)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open(generatedUrl, "_blank")}
+              >
+                Open in New Tab
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setGeneratedUrl(null);
+                  setGeneratedToken(null);
+                }}
+              >
                 Dismiss
               </Button>
             </div>
@@ -191,10 +190,10 @@ export default function SessionsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg font-bold text-[#172033]">
-            Session History
+            Session History &amp; Join Links
           </CardTitle>
           <CardDescription className="text-xs text-[#64748B]">
-            All active, expired, and revoked connection sessions
+            All active, expired, and revoked connection sessions. You can copy any session link or token at any time.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -211,51 +210,90 @@ export default function SessionsPage() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-white/60 text-[#64748B]">
-                    <th className="py-3 px-4 font-semibold">Session ID</th>
+                    <th className="py-3 px-4 font-semibold">Session ID / Token</th>
                     <th className="py-3 px-4 font-semibold">Status</th>
                     <th className="py-3 px-4 font-semibold">Expires At</th>
                     <th className="py-3 px-4 font-semibold">Created</th>
-                    <th className="py-3 px-4 font-semibold text-right">Action</th>
+                    <th className="py-3 px-4 font-semibold text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/40">
-                  {sessions.map((s) => (
-                    <tr key={s.id} className="hover:bg-white/20">
-                      <td className="py-3 px-4 font-mono font-medium text-[#172033]">
-                        {s.id.slice(0, 12)}...
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                            s.status === "connected"
-                              ? "bg-[#22A06B]/20 text-[#22A06B]"
-                              : s.status === "pending"
-                              ? "bg-[#F28C28]/20 text-[#F28C28]"
-                              : "bg-[#94A3B8]/20 text-[#64748B]"
-                          }`}
-                        >
-                          {s.status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-[#64748B]">
-                        {new Date(s.expiresAt).toLocaleTimeString()}
-                      </td>
-                      <td className="py-3 px-4 text-[#64748B]">
-                        {new Date(s.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        {s.status !== "revoked" && (
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => handleRevoke(s.id)}
+                  {sessions.map((s) => {
+                    const sessionUrl = s.joinUrl || `${PRODUCTION_APP_URL}/join/${s.id}`;
+                    const isRevoked = s.status === "revoked";
+                    const isExpired = new Date(s.expiresAt) < new Date();
+
+                    return (
+                      <tr key={s.id} className="hover:bg-white/20">
+                        <td className="py-3 px-4 font-mono font-medium text-[#172033]">
+                          <div className="flex items-center space-x-2">
+                            <span>{s.id.slice(0, 14)}...</span>
+                            <button
+                              onClick={() => copyToClipboard(s.id, "Session ID")}
+                              title="Copy Session ID"
+                              className="text-[#64748B] hover:text-[#F28C28]"
+                            >
+                              📋
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                              isRevoked
+                                ? "bg-red-500/20 text-red-600"
+                                : isExpired
+                                ? "bg-gray-500/20 text-gray-600"
+                                : s.status === "connected"
+                                ? "bg-[#22A06B]/20 text-[#22A06B]"
+                                : "bg-[#F28C28]/20 text-[#F28C28]"
+                            }`}
                           >
-                            Revoke
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                            {isRevoked ? "REVOKED" : isExpired ? "EXPIRED" : s.status.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-[#64748B]">
+                          {new Date(s.expiresAt).toLocaleTimeString()}
+                        </td>
+                        <td className="py-3 px-4 text-[#64748B]">
+                          {new Date(s.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {/* Copy Link Button - Always available */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => copyToClipboard(sessionUrl, "Join Link")}
+                              title="Copy Live Join Link for this session"
+                            >
+                              Copy Link
+                            </Button>
+
+                            {/* Open in new tab */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(sessionUrl, "_blank")}
+                              title="Open join page in new window"
+                            >
+                              Open
+                            </Button>
+
+                            {!isRevoked && (
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => handleRevoke(s.id)}
+                              >
+                                Revoke
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
