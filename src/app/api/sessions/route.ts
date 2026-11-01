@@ -68,9 +68,14 @@ export async function POST(req: Request) {
       },
     });
 
+    const envAppUrl = process.env.NEXT_PUBLIC_APP_URL;
     const host = req.headers.get("host") || "localhost:3000";
     const protocol = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-    const joinUrl = `${protocol}://${host}/join/${rawToken}`;
+    const baseUrl =
+      envAppUrl && !host.includes("localhost")
+        ? envAppUrl.replace(/\/$/, "")
+        : `${protocol}://${host}`;
+    const joinUrl = `${baseUrl}/join/${rawToken}`;
 
     // Calculate Wi-Fi local network IP for mobile device access
     let localIp = "localhost";
@@ -84,7 +89,11 @@ export async function POST(req: Request) {
         }
       }
     }
-    const mobileJoinUrl = `${protocol}://${localIp}:3000/join/${rawToken}`;
+
+    let mobileJoinUrl = `${protocol}://${localIp}:3000/join/${rawToken}`;
+    if (!host.includes("localhost") || (envAppUrl && !envAppUrl.includes("localhost"))) {
+      mobileJoinUrl = joinUrl;
+    }
 
     return NextResponse.json({
       session,

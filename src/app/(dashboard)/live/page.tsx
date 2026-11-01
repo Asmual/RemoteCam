@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import type { DataChannelMessage } from "@/types/webrtc";
+import { HybridSignalingClient } from "@/lib/webrtc/signaling";
 
 interface SessionItem {
   id: string;
@@ -23,7 +24,7 @@ export default function LiveMonitoringPage() {
 
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const peerRef = React.useRef<RTCPeerConnection | null>(null);
-  const wsRef = React.useRef<WebSocket | null>(null);
+  const signalingRef = React.useRef<HybridSignalingClient | null>(null);
   const dataChannelRef = React.useRef<RTCDataChannel | null>(null);
   const timerRef = React.useRef<NodeJS.Timeout | null>(null);
 
@@ -51,9 +52,9 @@ export default function LiveMonitoringPage() {
       peerRef.current.close();
       peerRef.current = null;
     }
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+    if (signalingRef.current) {
+      signalingRef.current.close();
+      signalingRef.current = null;
     }
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -62,7 +63,7 @@ export default function LiveMonitoringPage() {
     setIsRemoteRecording(false);
   };
 
-  const connectToStream = () => {
+  const connectToStream = async () => {
     if (!selectedSessionId) {
       toast.error("Please select an active session");
       return;
@@ -95,60 +96,40 @@ export default function LiveMonitoringPage() {
       }
     };
 
-    // Dynamic Signaling WebSocket
-    const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-    const proto = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${proto}//${host}:3001`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = async () => {
-      setConnectionStatus("Signaling connected. Creating offer...");
-      ws.send(
-        JSON.stringify({
-          type: "join-room",
-          sessionId: selectedSessionId,
-          senderRole: "owner",
-        })
-      );
-
-      // Create WebRTC Offer
-      const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
-      await pc.setLocalDescription(offer);
-
-      ws.send(
-        JSON.stringify({
-          type: "offer",
-          sessionId: selectedSessionId,
-          senderRole: "owner",
-          payload: offer,
-        })
-      );
-    };
-
-    ws.onmessage = async (event) => {
-      const message = JSON.parse(event.data);
-      if (message.type === "answer") {
-        await pc.setRemoteDescription(new RTCSessionDescription(message.payload));
-      } else if (message.type === "ice-candidate") {
+    // Hybrid WebRTC Signaling (Localhost WebSocket or Cloud Database Sync)
+    const signaling = new HybridSignalingClient({
+      sessionId: selectedSessionId,
+      role: "owner",
+      onStatusChange: (status) => setConnectionStatus(status),
+      onAnswer: async (answer) => {
+        if (peerRef.current) {
+          await peerRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+        }
+      },
+      onIceCandidate: async (candidate) => {
         try {
-          await pc.addIceCandidate(new RTCIceCandidate(message.payload));
+          if (peerRef.current) {
+            await peerRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          }
         } catch (e) {
           console.error("Error adding ice candidate", e);
         }
-      }
-    };
+      },
+    });
+    signalingRef.current = signaling;
+
+    // Create and send WebRTC Offer
+    try {
+      const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+      await pc.setLocalDescription(offer);
+      await signaling.sendSignal("offer", offer);
+    } catch (err) {
+      console.error("Error creating offer:", err);
+    }
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: "ice-candidate",
-            sessionId: selectedSessionId,
-            senderRole: "owner",
-            payload: event.candidate,
-          })
-        );
+      if (event.candidate && signalingRef.current) {
+        signalingRef.current.sendSignal("ice-candidate", event.candidate);
       }
     };
   };

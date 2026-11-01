@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import type { DataChannelMessage } from "@/types/webrtc";
+import { HybridSignalingClient } from "@/lib/webrtc/signaling";
 
 function DeviceJoinPageContent() {
   const params = useParams();
@@ -31,7 +32,7 @@ function DeviceJoinPageContent() {
 
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const peerRef = React.useRef<RTCPeerConnection | null>(null);
-  const wsRef = React.useRef<WebSocket | null>(null);
+  const signalingRef = React.useRef<HybridSignalingClient | null>(null);
   const dataChannelRef = React.useRef<RTCDataChannel | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
   const recordedChunksRef = React.useRef<Blob[]>([]);
@@ -66,9 +67,11 @@ function DeviceJoinPageContent() {
     }
     if (peerRef.current) {
       peerRef.current.close();
+      peerRef.current = null;
     }
-    if (wsRef.current) {
-      wsRef.current.close();
+    if (signalingRef.current) {
+      signalingRef.current.close();
+      signalingRef.current = null;
     }
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current);
@@ -133,57 +136,38 @@ function DeviceJoinPageContent() {
       channel.onmessage = (e) => handleDataChannelMessage(JSON.parse(e.data));
     };
 
-    // Dynamic Signaling WebSocket (works across Localhost, Mobile Wi-Fi, and Tunnels)
-    const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-    const proto = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${proto}//${host}:3001`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setConnectionStatus("Connected to signaling. Waiting for owner...");
-      ws.send(
-        JSON.stringify({
-          type: "join-room",
-          sessionId: sessionData.sessionId,
-          senderRole: "target",
-        })
-      );
-    };
-
-    ws.onmessage = async (event) => {
-      const message = JSON.parse(event.data);
-      if (message.type === "offer") {
-        await pc.setRemoteDescription(new RTCSessionDescription(message.payload));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        ws.send(
-          JSON.stringify({
-            type: "answer",
-            sessionId: sessionData.sessionId,
-            senderRole: "target",
-            payload: answer,
-          })
-        );
-      } else if (message.type === "ice-candidate") {
+    // Hybrid WebRTC Signaling (Localhost WebSocket or Cloud Database Sync)
+    const signaling = new HybridSignalingClient({
+      sessionId: sessionData.sessionId,
+      role: "target",
+      onStatusChange: (status) => setConnectionStatus(status),
+      onOffer: async (offer) => {
         try {
-          await pc.addIceCandidate(new RTCIceCandidate(message.payload));
+          if (peerRef.current) {
+            await peerRef.current.setRemoteDescription(new RTCSessionDescription(offer));
+            const answer = await peerRef.current.createAnswer();
+            await peerRef.current.setLocalDescription(answer);
+            await signaling.sendSignal("answer", answer);
+          }
+        } catch (err) {
+          console.error("Error responding to offer:", err);
+        }
+      },
+      onIceCandidate: async (candidate) => {
+        try {
+          if (peerRef.current) {
+            await peerRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          }
         } catch (e) {
           console.error("Error adding ice candidate", e);
         }
-      }
-    };
+      },
+    });
+    signalingRef.current = signaling;
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: "ice-candidate",
-            sessionId: sessionData.sessionId,
-            senderRole: "target",
-            payload: event.candidate,
-          })
-        );
+      if (event.candidate && signalingRef.current) {
+        signalingRef.current.sendSignal("ice-candidate", event.candidate);
       }
     };
 
