@@ -46,6 +46,17 @@ function DeviceJoinPageContent() {
   const [isMobileRecording, setIsMobileRecording] = React.useState(false);
   const [mobileRecordSeconds, setMobileRecordSeconds] = React.useState(0);
 
+  // Saved recording state for iOS / Mobile File Manager & Photos saving
+  interface SavedRecordingInfo {
+    blob: Blob;
+    url: string;
+    fileName: string;
+    sizeMb: string;
+    durationSec: number;
+    mimeType: string;
+  }
+  const [savedRecording, setSavedRecording] = React.useState<SavedRecordingInfo | null>(null);
+
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const peerRef = React.useRef<RTCPeerConnection | null>(null);
   const signalingRef = React.useRef<HybridSignalingClient | null>(null);
@@ -132,6 +143,10 @@ function DeviceJoinPageContent() {
   const cleanupMedia = () => {
     stopLocalRecording();
     releaseWakeLock();
+    if (savedRecording) {
+      URL.revokeObjectURL(savedRecording.url);
+      setSavedRecording(null);
+    }
     if (localStream) {
       localStream.getTracks().forEach((t) => t.stop());
     }
@@ -364,6 +379,7 @@ function DeviceJoinPageContent() {
 
       recorder.onstop = async () => {
         const durationMs = Date.now() - recordStartTimeRef.current;
+        const durationSec = Math.max(1, Math.round(durationMs / 1000));
         const actualMime = recorder.mimeType || selectedMimeType || "video/mp4";
         const isMp4 = actualMime.includes("mp4");
         const ext = isMp4 ? "mp4" : "webm";
@@ -376,16 +392,20 @@ function DeviceJoinPageContent() {
         const fileName = `phone_cctv_${recordingQuality}_${dateStr}_${Date.now()}.${ext}`;
 
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 10000);
-
         const sizeMb = (blob.size / 1024 / 1024).toFixed(1);
-        toast.success(`Video saved as ${fileName} (${qualityConfig.shortLabel}, ${sizeMb} MB)`);
+
+        // Store recording in state to open the iOS/Mobile Save & Preview sheet
+        const recordingInfo: SavedRecordingInfo = {
+          blob,
+          url,
+          fileName,
+          sizeMb,
+          durationSec,
+          mimeType: actualMime,
+        };
+        setSavedRecording(recordingInfo);
+
+        toast.success(`Video ready: ${fileName} (${qualityConfig.shortLabel}, ${sizeMb} MB)`);
       };
 
       // Start recording continuously without timeslice to prevent Chrome/Safari fMP4 muxer crashes
@@ -410,9 +430,55 @@ function DeviceJoinPageContent() {
         mediaRecorderRef.current.stop();
       }
       setIsMobileRecording(false);
+      setIsBlackScreen(false); // Automatically wake display when recording ends
       if (recordTimerRef.current) {
         clearInterval(recordTimerRef.current);
       }
+    }
+  };
+
+  // 8. iOS / Mobile Save to Files and Photo Library Handlers
+  const handleShareOrSaveToFiles = async (rec: SavedRecordingInfo) => {
+    try {
+      const file = new File([rec.blob], rec.fileName, { type: rec.blob.type || rec.mimeType || "video/mp4" });
+
+      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+        if (typeof navigator.canShare === "function" && !navigator.canShare({ files: [file] })) {
+          triggerBlobDownload(rec.url, rec.fileName);
+          return;
+        }
+
+        await navigator.share({
+          files: [file],
+          title: "Save CCTV Recording",
+          text: `CCTV Recording (${rec.fileName})`,
+        });
+        toast.success("Share sheet opened! Tap 'Save to Files' or 'Save Video'.");
+      } else {
+        triggerBlobDownload(rec.url, rec.fileName);
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") {
+        console.error("Save/Share failed:", err);
+        triggerBlobDownload(rec.url, rec.fileName);
+      }
+    }
+  };
+
+  const triggerBlobDownload = (url: string, fileName: string) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast.success(`Download started: ${fileName}`);
+  };
+
+  const closeSavedRecordingModal = () => {
+    if (savedRecording) {
+      URL.revokeObjectURL(savedRecording.url);
+      setSavedRecording(null);
     }
   };
 
@@ -484,6 +550,92 @@ function DeviceJoinPageContent() {
           className="fixed inset-0 bg-black z-[9999] cursor-pointer select-none"
           title="Tap anywhere to wake display"
         />
+      )}
+
+      {/* Recording Complete Modal for iPhone / Mobile File Manager & Photos Saving */}
+      {savedRecording && (
+        <div className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className={`w-full max-w-md rounded-2xl border p-5 space-y-4 shadow-2xl ${
+            isDark ? "bg-[#0E121A] border-zinc-800 text-zinc-100" : "bg-white border-zinc-200 text-[#172033]"
+          }`}>
+            <div className="flex items-center justify-between border-b pb-3 border-zinc-800/40">
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#22A06B]"></span>
+                <h3 className="text-sm font-bold tracking-wide">Recording Ready to Save</h3>
+              </div>
+              <button
+                onClick={closeSavedRecordingModal}
+                className="text-zinc-400 hover:text-white p-1 rounded-lg text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* In-app Video Preview */}
+            <div className="rounded-xl overflow-hidden bg-black aspect-video border border-zinc-800 relative">
+              <video
+                src={savedRecording.url}
+                controls
+                playsInline
+                className="w-full h-full object-contain"
+              />
+            </div>
+
+            {/* Video File Meta */}
+            <div className={`p-3 rounded-xl text-xs space-y-1 ${
+              isDark ? "bg-[#161B24] border border-zinc-800/80 text-zinc-300" : "bg-zinc-50 border border-zinc-200 text-zinc-700"
+            }`}>
+              <div className="flex justify-between font-mono text-[11px]">
+                <span className="font-semibold truncate max-w-[220px]">{savedRecording.fileName}</span>
+                <span className="text-[#F28C28] font-bold">{savedRecording.sizeMb} MB</span>
+              </div>
+              <div className="flex justify-between text-[11px] text-zinc-400">
+                <span>Duration: {formatTimer(savedRecording.durationSec)}</span>
+                <span className="uppercase">{activeQuality.shortLabel}</span>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="space-y-2 pt-1">
+              {/* Primary: Save to iPhone Files / Photos via Web Share */}
+              <Button
+                variant="primary"
+                size="lg"
+                className="w-full text-xs font-bold py-3 flex items-center justify-center space-x-2 shadow-lg"
+                onClick={() => handleShareOrSaveToFiles(savedRecording)}
+              >
+                <span>📱 Save to iPhone (Files / Photos)</span>
+              </Button>
+
+              <div className="grid grid-cols-2 gap-2">
+                {/* Secondary: Standard Download */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs font-semibold py-2.5"
+                  onClick={() => triggerBlobDownload(savedRecording.url, savedRecording.fileName)}
+                >
+                  <span>⬇️ Direct Download</span>
+                </Button>
+
+                {/* Close Button */}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="w-full text-xs font-semibold py-2.5"
+                  onClick={closeSavedRecordingModal}
+                >
+                  <span>✕ Done</span>
+                </Button>
+              </div>
+            </div>
+
+            {/* iPhone Helper Note */}
+            <p className="text-[10px] text-zinc-400 text-center leading-tight">
+              💡 On iPhone: Tap <strong>&ldquo;Save to iPhone&rdquo;</strong>, then select <strong>&ldquo;Save to Files&rdquo;</strong> (ফাইল ম্যানেজার) or <strong>&ldquo;Save Video&rdquo;</strong> (ফটো লাইব্রেরি).
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Top Header Toolbar with Dark/Light Mode Switcher */}
