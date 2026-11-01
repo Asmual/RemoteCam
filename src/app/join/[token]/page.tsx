@@ -401,29 +401,13 @@ function DeviceJoinPageContent() {
 
   return (
     <div className={`min-h-screen ${rootBg} flex flex-col justify-center p-4 sm:p-8 transition-colors duration-200`}>
-      {/* Stealth Black Screen Overlay with Active Recording Support */}
+      {/* Stealth 100% Pure Pitch-Black Screen Overlay (No text, lights, or timer during sleep mode) */}
       {isBlackScreen && (
         <div
           onClick={() => setIsBlackScreen(false)}
-          className="fixed inset-0 bg-black z-[9999] flex flex-col items-center justify-between p-8 cursor-pointer select-none"
-        >
-          <div className="text-[11px] text-zinc-800 tracking-widest font-mono text-center">
-            STEALTH DISPLAY SLEEP (CLICK ANYWHERE TO WAKE)
-          </div>
-
-          <div className="flex flex-col items-center space-y-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-950/40 animate-ping"></div>
-            {isMobileRecording && (
-              <span className="text-[11px] text-red-900 font-mono tracking-wider">
-                ● REC: {formatTimer(mobileRecordSeconds)} ({activeQuality.shortLabel})
-              </span>
-            )}
-          </div>
-
-          <div className="text-[10px] text-zinc-900 font-mono text-center">
-            LIVE CCTV STREAM ACTIVE
-          </div>
-        </div>
+          className="fixed inset-0 bg-black z-[9999] cursor-pointer select-none"
+          title="Tap anywhere to wake display"
+        />
       )}
 
       {/* Top Header Toolbar with Dark/Light Mode Switcher */}
