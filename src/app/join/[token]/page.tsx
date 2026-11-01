@@ -133,8 +133,10 @@ function DeviceJoinPageContent() {
       channel.onmessage = (e) => handleDataChannelMessage(JSON.parse(e.data));
     };
 
-    // Signaling WebSocket
-    const wsUrl = process.env.NEXT_PUBLIC_SIGNALING_WS_URL || "ws://localhost:3001";
+    // Dynamic Signaling WebSocket (works across Localhost, Mobile Wi-Fi, and Tunnels)
+    const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
+    const proto = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${proto}//${host}:3001`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -471,6 +473,21 @@ function DeviceJoinPageContent() {
               </div>
 
               <div className="flex flex-wrap gap-2">
+                {/* OS Display Sleep (Physically powers off laptop screen) */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    toast.info("Turning off monitor display in 1s. Move mouse or press any key to wake screen.");
+                    setTimeout(() => {
+                      fetch("/api/system/display-sleep", { method: "POST" }).catch(console.error);
+                    }, 1000);
+                  }}
+                  title="Physically turns off laptop screen backlight while camera continues recording"
+                >
+                  Turn Off Display (OS Sleep)
+                </Button>
+
                 {/* Black Screen / Stealth Display Toggle */}
                 <Button
                   variant="outline"

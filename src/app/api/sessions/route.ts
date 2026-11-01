@@ -68,13 +68,29 @@ export async function POST(req: Request) {
       },
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const joinUrl = `${appUrl}/join/${rawToken}`;
+    const host = req.headers.get("host") || "localhost:3000";
+    const protocol = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+    const joinUrl = `${protocol}://${host}/join/${rawToken}`;
+
+    // Calculate Wi-Fi local network IP for mobile device access
+    let localIp = "localhost";
+    const os = await import("os");
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name] || []) {
+        if (net.family === "IPv4" && !net.internal) {
+          localIp = net.address;
+          break;
+        }
+      }
+    }
+    const mobileJoinUrl = `${protocol}://${localIp}:3000/join/${rawToken}`;
 
     return NextResponse.json({
       session,
       rawToken,
       joinUrl,
+      mobileJoinUrl,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

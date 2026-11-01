@@ -20,6 +20,7 @@ export default function SessionsPage() {
   const [loading, setLoading] = React.useState(true);
   const [expiryMinutes, setExpiryMinutes] = React.useState(60);
   const [generatedUrl, setGeneratedUrl] = React.useState<string | null>(null);
+  const [mobileUrl, setMobileUrl] = React.useState<string | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
 
   const fetchSessions = async () => {
@@ -57,7 +58,8 @@ export default function SessionsPage() {
       }
 
       setGeneratedUrl(data.joinUrl);
-      toast.success("Join link created!");
+      setMobileUrl(data.mobileJoinUrl || null);
+      toast.success("Join links generated successfully!");
       fetchSessions();
     } catch (err: any) {
       toast.error(err.message);
@@ -125,22 +127,60 @@ export default function SessionsPage() {
         <Card className="border-l-4 border-l-[#F28C28]">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-bold text-[#172033]">
-              Active Join Link Ready
+              Active Join Links Ready
             </CardTitle>
             <CardDescription className="text-xs text-[#64748B]">
-              Share this link with your secondary camera device. The recipient must grant camera permission.
+              Share the appropriate link with the camera device. Target user must grant camera permission.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="p-3 bg-[#E8EAF0] rounded-xl shadow-[inset_3px_3px_6px_rgba(163,177,198,0.35),inset_-3px_-3px_6px_rgba(255,255,255,0.95)] break-all font-mono text-xs text-[#172033]">
-              {generatedUrl}
+          <CardContent className="space-y-4">
+            {/* Mobile / Wi-Fi Link */}
+            {mobileUrl && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-[#172033]">
+                    Mobile / iPhone Wi-Fi Link (একই ওয়াইফাই-এ থাকা ফোনের জন্য):
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(mobileUrl);
+                      toast.success("Mobile link copied!");
+                    }}
+                    className="text-[#F28C28] font-bold hover:underline"
+                  >
+                    Copy Mobile Link
+                  </button>
+                </div>
+                <div className="p-3 bg-[#E8EAF0] rounded-xl shadow-[inset_3px_3px_6px_rgba(163,177,198,0.35),inset_-3px_-3px_6px_rgba(255,255,255,0.95)] break-all font-mono text-xs text-[#172033]">
+                  {mobileUrl}
+                </div>
+              </div>
+            )}
+
+            {/* Localhost Link */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-[#172033]">
+                  Localhost Link (এই ল্যাপটপের অন্য ট্যাবে টেস্ট করতে):
+                </span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(generatedUrl);
+                    toast.success("Local link copied!");
+                  }}
+                  className="text-[#F28C28] font-bold hover:underline"
+                >
+                  Copy Local Link
+                </button>
+              </div>
+              <div className="p-3 bg-[#E8EAF0] rounded-xl shadow-[inset_3px_3px_6px_rgba(163,177,198,0.35),inset_-3px_-3px_6px_rgba(255,255,255,0.95)] break-all font-mono text-xs text-[#64748B]">
+                {generatedUrl}
+              </div>
             </div>
-            <div className="flex gap-2 justify-end">
+
+            <div className="flex gap-2 justify-end pt-2">
               <Button variant="secondary" size="sm" onClick={() => setGeneratedUrl(null)}>
                 Dismiss
-              </Button>
-              <Button variant="primary" size="sm" onClick={copyToClipboard}>
-                Copy Link
               </Button>
             </div>
           </CardContent>

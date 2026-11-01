@@ -95,8 +95,10 @@ export default function LiveMonitoringPage() {
       }
     };
 
-    // Signaling WebSocket
-    const wsUrl = process.env.NEXT_PUBLIC_SIGNALING_WS_URL || "ws://localhost:3001";
+    // Dynamic Signaling WebSocket
+    const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
+    const proto = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${proto}//${host}:3001`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
