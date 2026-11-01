@@ -1,26 +1,85 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #E8EAF0;
+    --background-secondary: #F0F1F5;
+    --card: #E8EAF0;
+    --card-foreground: #172033;
+    --popover: #E8EAF0;
+    --popover-foreground: #172033;
+    --primary: #F28C28;
+    --primary-foreground: #FFFFFF;
+    --secondary: #F0F1F5;
+    --secondary-foreground: #172033;
+    --muted: #E8EAF0;
+    --muted-foreground: #94A3B8;
+    --accent: #FDEEDC;
+    --accent-foreground: #F28C28;
+    --destructive: #E05A47;
+    --destructive-foreground: #FFFFFF;
+    --border: #FFFFFF;
+    --input: #E8EAF0;
+    --ring: #F28C28;
+    --radius: 1rem;
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: #E8EAF0;
+  color: #172033;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ----------------------------------------------------
+ * Soft Neumorphic 3D Surfaces & Depth (Solid Colors Only)
+ * ---------------------------------------------------- */
+.neu-raised {
+  background-color: #E8EAF0;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 8px 8px 16px rgba(163, 177, 198, 0.45), -8px -8px 16px rgba(255, 255, 255, 0.95);
+}
+
+.neu-raised-sm {
+  background-color: #E8EAF0;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 4px 4px 10px rgba(163, 177, 198, 0.4), -4px -4px 10px rgba(255, 255, 255, 0.95);
+}
+
+.neu-inset {
+  background-color: #E8EAF0;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: inset 4px 4px 8px rgba(163, 177, 198, 0.35), inset -4px -4px 8px rgba(255, 255, 255, 0.95);
+}
+
+.neu-inset-sm {
+  background-color: #E8EAF0;
+  box-shadow: inset 2px 2px 5px rgba(163, 177, 198, 0.35), inset -2px -2px 5px rgba(255, 255, 255, 0.95);
+}
+
+.neu-circle {
+  border-radius: 9999px;
+  background-color: #E8EAF0;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 6px 6px 14px rgba(163, 177, 198, 0.45), -6px -6px 14px rgba(255, 255, 255, 0.95);
+}
+
+/* Custom Scrollbar for Soft Light UI */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #E8EAF0;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
 }
