@@ -9,6 +9,7 @@ import {
   type RecordingQuality,
   QUALITY_CONFIGS,
   getSupportedVideoMimeType,
+  ensureValidVideoBlob,
 } from "@/lib/webrtc/quality";
 
 interface SessionItem {
@@ -181,11 +182,22 @@ export default function LiveMonitoringPage() {
 
     try {
       recordedChunksRef.current = [];
-      const recorder = new MediaRecorder(stream, {
-        mimeType: selectedMimeType,
-        videoBitsPerSecond: qualityConfig.videoBitrate,
-        audioBitsPerSecond: 64000,
-      });
+
+      let recorder: MediaRecorder;
+      try {
+        const options: MediaRecorderOptions = {};
+        if (selectedMimeType) {
+          options.mimeType = selectedMimeType;
+        }
+        if (qualityConfig.videoBitrate) {
+          options.videoBitsPerSecond = qualityConfig.videoBitrate;
+        }
+        options.audioBitsPerSecond = 64000;
+        recorder = new MediaRecorder(stream, options);
+      } catch (optErr) {
+        console.warn("Falling back to browser default recorder for live stream:", optErr);
+        recorder = new MediaRecorder(stream);
+      }
 
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
@@ -193,12 +205,24 @@ export default function LiveMonitoringPage() {
         }
       };
 
+      recorder.onerror = (event: any) => {
+        console.error("Live MediaRecorder error:", event);
+        toast.error("Recording error: " + (event.error?.name || "Encoder failure"));
+      };
+
       recorder.onstop = async () => {
-        const durationSec = Math.round((Date.now() - recordingStartTimeRef.current) / 1000);
-        const mime = selectedMimeType.includes("mp4") ? "video/mp4" : "video/webm";
-        const blob = new Blob(recordedChunksRef.current, { type: mime });
+        const durationMs = Date.now() - recordingStartTimeRef.current;
+        const durationSec = Math.max(1, Math.round(durationMs / 1000));
+        const actualMime = recorder.mimeType || selectedMimeType || "video/mp4";
+        const isMp4 = actualMime.includes("mp4");
+        const ext = isMp4 ? "mp4" : "webm";
+        let blob = new Blob(recordedChunksRef.current, { type: actualMime });
+
+        // Ensure duration headers are valid so players do not stop playback early
+        blob = await ensureValidVideoBlob(blob, durationMs);
+
         const dateStr = new Date().toISOString().slice(0, 10);
-        const fileName = `cctv_${recordingQuality}_${dateStr}_${Date.now()}.${fileExtension}`;
+        const fileName = `cctv_${recordingQuality}_${dateStr}_${Date.now()}.${ext}`;
 
         // Auto download to PC
         const url = URL.createObjectURL(blob);
@@ -208,7 +232,7 @@ export default function LiveMonitoringPage() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
 
         // Save metadata to database
         try {
@@ -218,13 +242,13 @@ export default function LiveMonitoringPage() {
             body: JSON.stringify({
               sessionId: selectedSessionId || undefined,
               fileName,
-              fileFormat: fileExtension,
+              fileFormat: ext,
               fileSizeBytes: blob.size,
               durationSeconds: durationSec,
               startedAt: new Date(recordingStartTimeRef.current).toISOString(),
               endedAt: new Date().toISOString(),
               saveStatus: "downloaded",
-              saveLocationDescription: `Saved locally as ${qualityConfig.shortLabel} MP4 (${(blob.size / 1024 / 1024).toFixed(1)} MB)`,
+              saveLocationDescription: `Saved locally as ${qualityConfig.shortLabel} ${ext.toUpperCase()} (${(blob.size / 1024 / 1024).toFixed(1)} MB)`,
             }),
           });
         } catch (e) {
@@ -234,7 +258,8 @@ export default function LiveMonitoringPage() {
         toast.success(`Recording saved as ${fileName} (${qualityConfig.shortLabel}, ${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
       };
 
-      recorder.start(1000);
+      // Start recording continuously without timeslice to prevent Chrome/Safari fMP4 muxer crashes
+      recorder.start();
       mediaRecorderRef.current = recorder;
       recordingStartTimeRef.current = Date.now();
       setIsRecordingStream(true);
@@ -251,7 +276,9 @@ export default function LiveMonitoringPage() {
 
   const stopStreamRecording = () => {
     if (mediaRecorderRef.current && isRecordingStream) {
-      mediaRecorderRef.current.stop();
+      if (mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
       setIsRecordingStream(false);
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);

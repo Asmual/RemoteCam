@@ -11,6 +11,7 @@ import {
   type RecordingQuality,
   QUALITY_CONFIGS,
   getSupportedVideoMimeType,
+  ensureValidVideoBlob,
 } from "@/lib/webrtc/quality";
 
 function DeviceJoinPageContent() {
@@ -54,6 +55,53 @@ function DeviceJoinPageContent() {
   const recordedChunksRef = React.useRef<Blob[]>([]);
   const recordTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const recordStartTimeRef = React.useRef<number>(0);
+  const wakeLockRef = React.useRef<any>(null);
+
+  const acquireWakeLock = React.useCallback(async () => {
+    if (typeof window !== "undefined" && "wakeLock" in navigator && !wakeLockRef.current) {
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+        wakeLockRef.current.addEventListener("release", () => {
+          wakeLockRef.current = null;
+        });
+        console.log("Screen Wake Lock active: screen will remain awake indefinitely.");
+      } catch (err) {
+        console.warn("Screen Wake Lock could not be acquired:", err);
+      }
+    }
+  }, []);
+
+  const releaseWakeLock = React.useCallback(async () => {
+    if (wakeLockRef.current) {
+      try {
+        await wakeLockRef.current.release();
+      } catch (e) {
+        console.warn("Error releasing wake lock:", e);
+      }
+      wakeLockRef.current = null;
+    }
+  }, []);
+
+  // Keep mobile screen awake indefinitely while CCTV camera or recording is active
+  React.useEffect(() => {
+    if (consented || isMobileRecording) {
+      acquireWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && (consented || isMobileRecording)) {
+        acquireWakeLock();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      releaseWakeLock();
+    };
+  }, [consented, isMobileRecording, acquireWakeLock, releaseWakeLock]);
 
   // 1. Validate Token on mount
   React.useEffect(() => {
@@ -83,6 +131,7 @@ function DeviceJoinPageContent() {
 
   const cleanupMedia = () => {
     stopLocalRecording();
+    releaseWakeLock();
     if (localStream) {
       localStream.getTracks().forEach((t) => t.stop());
     }
@@ -285,11 +334,22 @@ function DeviceJoinPageContent() {
 
     try {
       recordedChunksRef.current = [];
-      const recorder = new MediaRecorder(localStream, {
-        mimeType: selectedMimeType,
-        videoBitsPerSecond: qualityConfig.videoBitrate,
-        audioBitsPerSecond: 64000,
-      });
+
+      let recorder: MediaRecorder;
+      try {
+        const options: MediaRecorderOptions = {};
+        if (selectedMimeType) {
+          options.mimeType = selectedMimeType;
+        }
+        if (qualityConfig.videoBitrate) {
+          options.videoBitsPerSecond = qualityConfig.videoBitrate;
+        }
+        options.audioBitsPerSecond = 64000;
+        recorder = new MediaRecorder(localStream, options);
+      } catch (optErr) {
+        console.warn("Falling back to device default MediaRecorder options:", optErr);
+        recorder = new MediaRecorder(localStream);
+      }
 
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
@@ -297,11 +357,23 @@ function DeviceJoinPageContent() {
         }
       };
 
-      recorder.onstop = () => {
-        const mime = selectedMimeType.includes("mp4") ? "video/mp4" : "video/webm";
-        const blob = new Blob(recordedChunksRef.current, { type: mime });
+      recorder.onerror = (event: any) => {
+        console.error("Mobile MediaRecorder runtime error:", event);
+        toast.error("Recording error: " + (event.error?.name || "Encoder failure"));
+      };
+
+      recorder.onstop = async () => {
+        const durationMs = Date.now() - recordStartTimeRef.current;
+        const actualMime = recorder.mimeType || selectedMimeType || "video/mp4";
+        const isMp4 = actualMime.includes("mp4");
+        const ext = isMp4 ? "mp4" : "webm";
+        let blob = new Blob(recordedChunksRef.current, { type: actualMime });
+
+        // Ensure duration headers are valid so players do not stop playback early
+        blob = await ensureValidVideoBlob(blob, durationMs);
+
         const dateStr = new Date().toISOString().slice(0, 10);
-        const fileName = `phone_cctv_${recordingQuality}_${dateStr}_${Date.now()}.${fileExtension}`;
+        const fileName = `phone_cctv_${recordingQuality}_${dateStr}_${Date.now()}.${ext}`;
 
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -310,12 +382,14 @@ function DeviceJoinPageContent() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
 
-        toast.success(`Video saved as ${fileName} (${qualityConfig.shortLabel}, ${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+        const sizeMb = (blob.size / 1024 / 1024).toFixed(1);
+        toast.success(`Video saved as ${fileName} (${qualityConfig.shortLabel}, ${sizeMb} MB)`);
       };
 
-      recorder.start(1000);
+      // Start recording continuously without timeslice to prevent Chrome/Safari fMP4 muxer crashes
+      recorder.start();
       mediaRecorderRef.current = recorder;
       recordStartTimeRef.current = Date.now();
       setIsMobileRecording(true);
@@ -332,7 +406,9 @@ function DeviceJoinPageContent() {
 
   const stopLocalRecording = () => {
     if (mediaRecorderRef.current && isMobileRecording) {
-      mediaRecorderRef.current.stop();
+      if (mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
       setIsMobileRecording(false);
       if (recordTimerRef.current) {
         clearInterval(recordTimerRef.current);
