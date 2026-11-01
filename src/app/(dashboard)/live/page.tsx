@@ -101,6 +101,17 @@ export default function LiveMonitoringPage() {
       sessionId: selectedSessionId,
       role: "owner",
       onStatusChange: (status) => setConnectionStatus(status),
+      onUserJoined: async () => {
+        try {
+          if (peerRef.current) {
+            const offer = await peerRef.current.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+            await peerRef.current.setLocalDescription(offer);
+            await signaling.sendSignal("offer", offer);
+          }
+        } catch (err) {
+          console.error("Error re-sending offer on user-joined:", err);
+        }
+      },
       onAnswer: async (answer) => {
         if (peerRef.current) {
           await peerRef.current.setRemoteDescription(new RTCSessionDescription(answer));

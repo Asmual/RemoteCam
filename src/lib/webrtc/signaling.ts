@@ -4,6 +4,7 @@ export interface SignalingOptions {
   onOffer?: (offer: RTCSessionDescriptionInit) => void;
   onAnswer?: (answer: RTCSessionDescriptionInit) => void;
   onIceCandidate?: (candidate: RTCIceCandidateInit) => void;
+  onUserJoined?: (data: any) => void;
   onStatusChange?: (status: string) => void;
 }
 
@@ -23,7 +24,8 @@ export class HybridSignalingClient {
     this.options = options;
     this.sessionId = options.sessionId;
     this.role = options.role;
-    this.lastPollTime = new Date(Date.now() - 30000).toISOString();
+    // Look back up to 1 hour so target can immediately receive owner's existing offer
+    this.lastPollTime = new Date(Date.now() - 3600000).toISOString();
     this.init();
   }
 
@@ -98,7 +100,10 @@ export class HybridSignalingClient {
   private startFallback() {
     if (this.isFallbackMode || this.isClosed) return;
     this.isFallbackMode = true;
-    this.options.onStatusChange?.("Signaling connected via Cloud Database Sync");
+    this.options.onStatusChange?.("Live Cloud Sync Connected");
+
+    // Announce presence
+    this.sendSignal("user-joined", { role: this.role });
 
     this.poll();
     this.pollInterval = setInterval(() => this.poll(), 1200);
@@ -135,6 +140,8 @@ export class HybridSignalingClient {
       this.options.onAnswer(payload);
     } else if (type === "ice-candidate" && this.options.onIceCandidate) {
       this.options.onIceCandidate(payload);
+    } else if (type === "user-joined" && this.options.onUserJoined) {
+      this.options.onUserJoined(payload);
     }
   }
 
