@@ -21,6 +21,9 @@ function DeviceJoinPageContent() {
   const [sessionData, setSessionData] = React.useState<any>(null);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
 
+  // Theme mode: Default to Dark Mode to eliminate white notch/top borders on mobile OLED displays
+  const [isDarkMode, setIsDarkMode] = React.useState(true);
+
   // Consent states: Audio and Camera enabled by default
   const [cameraAllowed, setCameraAllowed] = React.useState(true);
   const [audioAllowed, setAudioAllowed] = React.useState(true);
@@ -353,24 +356,41 @@ function DeviceJoinPageContent() {
 
   const activeQuality = QUALITY_CONFIGS[recordingQuality];
 
+  // Dynamic Theme Styling (Pure OLED Black in Dark Mode, eliminating top white line)
+  const isDark = isDarkMode;
+  const rootBg = isDark ? "bg-[#000000] text-zinc-100" : "bg-[#E8EAF0] text-[#172033]";
+  const cardBg = isDark
+    ? "bg-[#0B0E14] border-zinc-800/80 text-zinc-100 shadow-[0_8px_32px_rgba(0,0,0,0.85)]"
+    : "bg-[#E8EAF0] border-white/80 text-[#172033] shadow-[8px_8px_16px_rgba(163,177,198,0.45),-8px_-8px_16px_rgba(255,255,255,0.95)]";
+  const innerCardBg = isDark
+    ? "bg-[#121620] text-zinc-300 border border-zinc-800 shadow-[inset_1px_1px_4px_rgba(0,0,0,0.6)]"
+    : "bg-[#E8EAF0] text-[#64748B] shadow-[inset_3px_3px_6px_rgba(163,177,198,0.35),inset_-3px_-3px_6px_rgba(255,255,255,0.95)]";
+  const selectBg = isDark
+    ? "bg-[#121620] border-zinc-700 text-zinc-100 shadow-[inset_1px_1px_3px_rgba(0,0,0,0.5)]"
+    : "bg-[#E8EAF0] border-white/80 text-[#172033] shadow-[inset_2px_2px_5px_rgba(163,177,198,0.35),inset_-2px_-2px_5px_rgba(255,255,255,0.95)]";
+  const videoBorder = isDark ? "border-zinc-900 shadow-[0_4px_24px_rgba(0,0,0,0.95)]" : "border-white/80 shadow-[8px_8px_16px_rgba(163,177,198,0.45),-8px_-8px_16px_rgba(255,255,255,0.95)]";
+  const controlsBg = isDark
+    ? "bg-[#0B0E14] border-zinc-800/80 shadow-[0_4px_20px_rgba(0,0,0,0.7)]"
+    : "bg-[#E8EAF0] border-white/80 shadow-[6px_6px_14px_rgba(163,177,198,0.4),-6px_-6px_14px_rgba(255,255,255,0.95)]";
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#E8EAF0] flex items-center justify-center p-4">
-        <p className="text-sm font-semibold text-[#64748B]">Verifying secure connection token...</p>
+      <div className={`min-h-screen ${rootBg} flex items-center justify-center p-4`}>
+        <p className="text-sm font-semibold text-zinc-400">Verifying secure connection token...</p>
       </div>
     );
   }
 
   if (errorMsg) {
     return (
-      <div className="min-h-screen bg-[#E8EAF0] flex items-center justify-center p-4">
+      <div className={`min-h-screen ${rootBg} flex items-center justify-center p-4`}>
         <Card className="w-full max-w-md border-l-4 border-l-[#E05A47]">
           <CardHeader>
-            <CardTitle className="text-lg font-bold text-[#172033]">Access Denied</CardTitle>
+            <CardTitle className="text-lg font-bold">Access Denied</CardTitle>
             <CardDescription className="text-xs text-[#E05A47] mt-1">{errorMsg}</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-[#64748B]">
+            <p className="text-xs text-zinc-400">
               Please request a new join link from the camera session owner.
             </p>
           </CardContent>
@@ -380,7 +400,7 @@ function DeviceJoinPageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-[#E8EAF0] text-[#172033] flex flex-col justify-center p-4 sm:p-8">
+    <div className={`min-h-screen ${rootBg} flex flex-col justify-center p-4 sm:p-8 transition-colors duration-200`}>
       {/* Stealth Black Screen Overlay with Active Recording Support */}
       {isBlackScreen && (
         <div
@@ -406,45 +426,70 @@ function DeviceJoinPageContent() {
         </div>
       )}
 
+      {/* Top Header Toolbar with Dark/Light Mode Switcher */}
+      <div className="max-w-xl mx-auto w-full flex items-center justify-between mb-4 px-1">
+        <div className="flex items-center space-x-2">
+          <span className="w-2 h-2 rounded-full bg-[#22A06B] animate-pulse"></span>
+          <span className="text-xs font-bold tracking-wider uppercase font-mono text-zinc-400">
+            RemoteCam CCTV
+          </span>
+        </div>
+
+        {/* Theme Toggle Button */}
+        <button
+          onClick={() => setIsDarkMode(!isDarkMode)}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 border transition-all ${
+            isDark
+              ? "bg-[#161B22] border-zinc-700 text-zinc-200 hover:bg-zinc-800"
+              : "bg-[#E8EAF0] border-white/80 text-[#172033] shadow-[2px_2px_5px_rgba(163,177,198,0.4),-2px_-2px_5px_rgba(255,255,255,0.95)]"
+          }`}
+          title="Toggle Dark Mode or Light Mode"
+        >
+          <span>{isDark ? "☀️ Light Mode" : "🌙 Dark Mode"}</span>
+        </button>
+      </div>
+
       <main className="max-w-xl mx-auto w-full">
         {!consented ? (
           /* CCTV Camera Connection Card */
-          <Card className="border border-white/80 shadow-[8px_8px_16px_rgba(163,177,198,0.45),-8px_-8px_16px_rgba(255,255,255,0.95)]">
+          <Card className={`border ${cardBg}`}>
             <CardHeader className="text-center pb-2">
-              <div className="w-14 h-14 mx-auto rounded-2xl bg-[#E8EAF0] border border-white/80 shadow-[4px_4px_10px_rgba(163,177,198,0.45),-4px_-4px_10px_rgba(255,255,255,0.95)] flex items-center justify-center mb-3">
+              <div className={`w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3 border ${
+                isDark ? "bg-[#161B22] border-zinc-700" : "bg-[#E8EAF0] border-white/80 shadow-[4px_4px_10px_rgba(163,177,198,0.45),-4px_-4px_10px_rgba(255,255,255,0.95)]"
+              }`}>
                 <span className="w-4 h-4 rounded-full bg-[#22A06B] animate-pulse"></span>
               </div>
-              <CardTitle className="text-xl font-extrabold text-[#172033]">
+              <CardTitle className="text-xl font-extrabold">
                 Connect as CCTV Camera
               </CardTitle>
-              <CardDescription className="text-xs text-[#64748B] mt-1.5">
+              <CardDescription className={`text-xs mt-1.5 ${isDark ? "text-zinc-400" : "text-[#64748B]"}`}>
                 Connecting to monitor owned by <strong>{sessionData?.ownerName || "Dashboard Owner"}</strong>.
               </CardDescription>
             </CardHeader>
 
             <CardContent className="space-y-6">
-              <div className="p-4 bg-[#E8EAF0] rounded-xl shadow-[inset_3px_3px_6px_rgba(163,177,198,0.35),inset_-3px_-3px_6px_rgba(255,255,255,0.95)] text-xs text-[#64748B] space-y-2">
-                <p className="font-semibold text-[#172033]">CCTV Live Streaming Mode:</p>
+              <div className={`p-4 rounded-xl text-xs space-y-2 ${innerCardBg}`}>
+                <p className="font-semibold text-zinc-100">CCTV Live Streaming Mode:</p>
                 <p>• Stream live video &amp; audio directly to your laptop monitor.</p>
                 <p>• Default camera: <strong>Front (Selfie) Camera</strong>.</p>
-                <p>• You can record in MP4 and tap &ldquo;Black Screen&rdquo; to record in sleep mode.</p>
+                <p>• Tap &ldquo;Black Screen&rdquo; anytime to dim the display while continuing stream.</p>
               </div>
 
               {/* Quality Selector */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#172033] block">
+                <label className="text-xs font-semibold block">
                   Recording &amp; Stream Quality:
                 </label>
                 <select
                   value={recordingQuality}
                   onChange={(e) => setRecordingQuality(e.target.value as RecordingQuality)}
-                  className="w-full h-11 rounded-xl bg-[#E8EAF0] border border-white/80 px-3 text-xs font-semibold text-[#172033] shadow-[inset_2px_2px_5px_rgba(163,177,198,0.35),inset_-2px_-2px_5px_rgba(255,255,255,0.95)] focus:outline-none"
+                  className={`w-full h-11 rounded-xl border px-3 text-xs font-semibold focus:outline-none ${selectBg}`}
                 >
                   <option value="1080p">Full HD (1080p) [Default]</option>
                   <option value="720p">HD (720p) [Balanced]</option>
                   <option value="480p">Medium (480p) [Storage Saver]</option>
                 </select>
-                <p className="text-[11px] text-[#64748B]">
+                <p className="text-[11px] text-zinc-400">
                   {activeQuality.description}
                 </p>
               </div>
@@ -458,7 +503,7 @@ function DeviceJoinPageContent() {
                     onChange={(e) => setCameraAllowed(e.target.checked)}
                     className="w-4 h-4 accent-[#F28C28]"
                   />
-                  <span className="font-semibold text-[#172033]">
+                  <span className="font-semibold">
                     Allow Live Camera Streaming (Required)
                   </span>
                 </label>
@@ -470,7 +515,7 @@ function DeviceJoinPageContent() {
                     onChange={(e) => setAudioAllowed(e.target.checked)}
                     className="w-4 h-4 accent-[#F28C28]"
                   />
-                  <span className="text-[#64748B]">
+                  <span className={isDark ? "text-zinc-400" : "text-[#64748B]"}>
                     Allow Live Audio Microphone (Recommended)
                   </span>
                 </label>
@@ -489,7 +534,7 @@ function DeviceJoinPageContent() {
         ) : (
           /* Active Camera Feed & Controls */
           <div className="space-y-6">
-            <div className="relative rounded-2xl overflow-hidden bg-black aspect-video border border-white/80 shadow-[8px_8px_16px_rgba(163,177,198,0.45),-8px_-8px_16px_rgba(255,255,255,0.95)]">
+            <div className={`relative rounded-2xl overflow-hidden bg-black aspect-video border ${videoBorder}`}>
               <video
                 ref={videoRef}
                 autoPlay
@@ -521,23 +566,23 @@ function DeviceJoinPageContent() {
             </div>
 
             {/* Quick CCTV Controls */}
-            <div className="p-5 bg-[#E8EAF0] rounded-2xl border border-white/80 shadow-[6px_6px_14px_rgba(163,177,198,0.4),-6px_-6px_14px_rgba(255,255,255,0.95)] space-y-4">
+            <div className={`p-5 rounded-2xl border space-y-4 ${controlsBg}`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <p className="text-xs font-bold text-[#172033]">CCTV Device Controls</p>
-                  <p className="text-[11px] text-[#64748B]">
+                  <p className="text-xs font-bold">CCTV Device Controls</p>
+                  <p className="text-[11px] text-zinc-400">
                     Status: <span className="font-semibold text-[#F28C28]">{connectionStatus}</span>
                   </p>
                 </div>
 
                 {/* Quality Selector while active */}
                 <div className="flex items-center space-x-2">
-                  <span className="text-[11px] font-semibold text-[#64748B]">Quality:</span>
+                  <span className="text-[11px] font-semibold text-zinc-400">Quality:</span>
                   <select
                     value={recordingQuality}
                     onChange={(e) => setRecordingQuality(e.target.value as RecordingQuality)}
                     disabled={isMobileRecording}
-                    className="h-8 rounded-lg bg-[#E8EAF0] border border-white/80 px-2 text-[11px] font-semibold text-[#172033] shadow-[inset_2px_2px_4px_rgba(163,177,198,0.35),inset_-2px_-2px_4px_rgba(255,255,255,0.95)] focus:outline-none"
+                    className={`h-8 rounded-lg border px-2 text-[11px] font-semibold focus:outline-none ${selectBg}`}
                   >
                     <option value="1080p">Full HD (1080p) [Default]</option>
                     <option value="720p">HD (720p) [Balanced]</option>
@@ -613,7 +658,7 @@ function DeviceJoinPageContent() {
                 </Button>
               </div>
 
-              <div className="p-3 bg-[#E8EAF0] rounded-xl shadow-[inset_2px_2px_5px_rgba(163,177,198,0.35),inset_-2px_-2px_5px_rgba(255,255,255,0.95)] text-[11px] text-[#64748B]">
+              <div className={`p-3 rounded-xl text-[11px] ${innerCardBg}`}>
                 💡 <strong>Record in Black Screen:</strong> You can click <strong>&ldquo;Record&rdquo;</strong> and then click <strong>&ldquo;Black Screen&rdquo;</strong>. The video will keep recording locally in {activeQuality.shortLabel} MP4 while the screen remains completely dark! Tap anywhere on the dark screen to return and save your recording.
               </div>
             </div>
@@ -628,8 +673,8 @@ export default function DeviceJoinPage() {
   return (
     <React.Suspense
       fallback={
-        <div className="min-h-screen bg-[#E8EAF0] flex items-center justify-center p-4">
-          <p className="text-sm font-semibold text-[#64748B]">Loading secure connection...</p>
+        <div className="min-h-screen bg-black flex items-center justify-center p-4">
+          <p className="text-sm font-semibold text-zinc-400">Loading secure connection...</p>
         </div>
       }
     >

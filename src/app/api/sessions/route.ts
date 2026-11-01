@@ -22,13 +22,10 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_APP_URL;
-    const baseUrl = appUrl.replace(/\/$/, "");
-
     const formattedSessions = sessions.map((s) => ({
       ...s,
       token: s.id,
-      joinUrl: `${baseUrl}/join/${s.id}`,
+      joinUrl: `${PRODUCTION_APP_URL}/join/${s.id}`,
     }));
 
     return NextResponse.json({ sessions: formattedSessions });
@@ -80,10 +77,8 @@ export async function POST(req: Request) {
       },
     });
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || PRODUCTION_APP_URL;
-    const baseUrl = appUrl.replace(/\/$/, "");
-    const joinUrl = `${baseUrl}/join/${rawToken}`;
-    const sessionJoinUrl = `${baseUrl}/join/${session.id}`;
+    const joinUrl = `${PRODUCTION_APP_URL}/join/${rawToken}`;
+    const sessionJoinUrl = `${PRODUCTION_APP_URL}/join/${session.id}`;
 
     return NextResponse.json({
       session: {

@@ -61,8 +61,10 @@ export default function SessionsPage() {
         return;
       }
 
-      setGeneratedUrl(data.joinUrl);
-      setGeneratedToken(data.rawToken);
+      const token = data.rawToken || data.session?.id || "";
+      const liveUrl = `${PRODUCTION_APP_URL}/join/${token}`;
+      setGeneratedUrl(liveUrl);
+      setGeneratedToken(token);
       toast.success("Live join link generated successfully!");
       fetchSessions();
     } catch (err: any) {
