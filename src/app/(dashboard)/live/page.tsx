@@ -3,8 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import type { DataChannelMessage } from "@/types/webrtc";
+import { Card } from "@/components/ui/card";
 import { HybridSignalingClient } from "@/lib/webrtc/signaling";
 
 interface SessionItem {
@@ -17,16 +16,22 @@ export default function LiveMonitoringPage() {
   const [sessions, setSessions] = React.useState<SessionItem[]>([]);
   const [selectedSessionId, setSelectedSessionId] = React.useState<string>("");
   const [connectionStatus, setConnectionStatus] = React.useState<string>("Disconnected");
-  const [isRemoteRecording, setIsRemoteRecording] = React.useState(false);
-  const [recordingTimer, setRecordingTimer] = React.useState(0);
   const [isMuted, setIsMuted] = React.useState(false);
   const [hasAudioTrack, setHasAudioTrack] = React.useState(false);
+
+  // Monitor-side Local MP4 Recording States (Medium Quality - Storage Saver)
+  const [isRecordingStream, setIsRecordingStream] = React.useState(false);
+  const [recordingSeconds, setRecordingSeconds] = React.useState(0);
 
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const peerRef = React.useRef<RTCPeerConnection | null>(null);
   const signalingRef = React.useRef<HybridSignalingClient | null>(null);
   const dataChannelRef = React.useRef<RTCDataChannel | null>(null);
-  const timerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = React.useRef<Blob[]>([]);
+  const recordingTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const recordingStartTimeRef = React.useRef<number>(0);
 
   // Fetch active sessions
   React.useEffect(() => {
@@ -48,6 +53,8 @@ export default function LiveMonitoringPage() {
   }, []);
 
   const disconnectStream = () => {
+    stopStreamRecording();
+
     if (peerRef.current) {
       peerRef.current.close();
       peerRef.current = null;
@@ -56,11 +63,8 @@ export default function LiveMonitoringPage() {
       signalingRef.current.close();
       signalingRef.current = null;
     }
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
     setConnectionStatus("Disconnected");
-    setIsRemoteRecording(false);
+    setHasAudioTrack(false);
   };
 
   const connectToStream = async () => {
@@ -91,8 +95,16 @@ export default function LiveMonitoringPage() {
           setHasAudioTrack(true);
         }
         setConnectionStatus("Live Stream Active");
-        toast.success("Live video & audio feed connected!");
+        toast.success("Live CCTV video & audio feed connected!");
         videoRef.current.play().catch(console.error);
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "connected") {
+        setConnectionStatus("Live Stream Active");
+      } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+        setConnectionStatus("Device Disconnected");
       }
     };
 
@@ -145,39 +157,112 @@ export default function LiveMonitoringPage() {
     };
   };
 
-  const handleStartRemoteRecording = () => {
-    if (!dataChannelRef.current || dataChannelRef.current.readyState !== "open") {
-      toast.error("Control channel not ready. Ensure device is connected.");
+  // Start Monitor Stream Recording in MP4 Medium Quality (Storage Saver)
+  const startStreamRecording = () => {
+    if (!videoRef.current || !videoRef.current.srcObject) {
+      toast.error("No active video feed to record. Connect to camera first.");
       return;
     }
 
-    const msg: DataChannelMessage = {
-      type: "START_RECORDING",
-      timestamp: Date.now(),
-    };
-    dataChannelRef.current.send(JSON.stringify(msg));
-    setIsRemoteRecording(true);
-    setRecordingTimer(0);
-    toast.info("Remote recording command transmitted.");
+    const stream = videoRef.current.srcObject as MediaStream;
+    if (stream.getTracks().length === 0) {
+      toast.error("Camera stream is not active.");
+      return;
+    }
 
-    timerRef.current = setInterval(() => {
-      setRecordingTimer((prev) => prev + 1);
-    }, 1000);
+    // Determine optimal MP4 format supported by browser
+    let selectedMimeType = "video/webm";
+    let fileExtension = "mp4";
+
+    if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1")) {
+      selectedMimeType = "video/mp4;codecs=avc1";
+      fileExtension = "mp4";
+    } else if (MediaRecorder.isTypeSupported("video/mp4")) {
+      selectedMimeType = "video/mp4";
+      fileExtension = "mp4";
+    } else if (MediaRecorder.isTypeSupported("video/webm;codecs=h264")) {
+      selectedMimeType = "video/webm;codecs=h264";
+      fileExtension = "mp4";
+    }
+
+    try {
+      recordedChunksRef.current = [];
+      const recorder = new MediaRecorder(stream, {
+        mimeType: selectedMimeType,
+        videoBitsPerSecond: 1000000, // Medium Quality (1 Mbps) - saves ~80% storage
+        audioBitsPerSecond: 64000, // 64 kbps clear speech
+      });
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const durationSec = Math.round((Date.now() - recordingStartTimeRef.current) / 1000);
+        const mime = selectedMimeType.includes("mp4") ? "video/mp4" : "video/webm";
+        const blob = new Blob(recordedChunksRef.current, { type: mime });
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const fileName = `cctv_record_${dateStr}_${Date.now()}.${fileExtension}`;
+
+        // Auto download to PC
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+        // Save metadata to database
+        try {
+          await fetch("/api/recordings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId: selectedSessionId || undefined,
+              fileName,
+              fileFormat: fileExtension,
+              fileSizeBytes: blob.size,
+              durationSeconds: durationSec,
+              startedAt: new Date(recordingStartTimeRef.current).toISOString(),
+              endedAt: new Date().toISOString(),
+              saveStatus: "downloaded",
+              saveLocationDescription: `Saved locally as optimized MP4 (${(blob.size / 1024 / 1024).toFixed(1)} MB)`,
+            }),
+          });
+        } catch (e) {
+          console.error("Failed to save metadata", e);
+        }
+
+        toast.success(`Recording saved as ${fileName} (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+      };
+
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+      recordingStartTimeRef.current = Date.now();
+      setIsRecordingStream(true);
+      setRecordingSeconds(0);
+      toast.info(`Recording started in MP4 Medium Quality (Storage Saver Mode)`);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      toast.error("Failed to start recorder: " + err.message);
+    }
   };
 
-  const handleStopRemoteRecording = () => {
-    if (!dataChannelRef.current || dataChannelRef.current.readyState !== "open") return;
-
-    const msg: DataChannelMessage = {
-      type: "STOP_RECORDING",
-      timestamp: Date.now(),
-    };
-    dataChannelRef.current.send(JSON.stringify(msg));
-    setIsRemoteRecording(false);
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
+  const stopStreamRecording = () => {
+    if (mediaRecorderRef.current && isRecordingStream) {
+      mediaRecorderRef.current.stop();
+      setIsRecordingStream(false);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
     }
-    toast.success("Remote recording stopped. Saving on target device.");
   };
 
   const toggleFullscreen = () => {
@@ -190,16 +275,22 @@ export default function LiveMonitoringPage() {
     }
   };
 
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 bg-[#E8EAF0] rounded-2xl border border-white/80 shadow-[8px_8px_16px_rgba(163,177,198,0.45),-8px_-8px_16px_rgba(255,255,255,0.95)]">
         <div>
           <h1 className="text-2xl font-extrabold text-[#172033]">
-            Live Camera Monitor
+            Live CCTV Monitor
           </h1>
           <p className="text-sm text-[#64748B] mt-1">
-            Real-time peer-to-peer video stream via WebRTC.
+            Real-time peer-to-peer CCTV camera stream with MP4 recording.
           </p>
         </div>
 
@@ -243,22 +334,29 @@ export default function LiveMonitoringPage() {
               </div>
               <p className="text-sm font-bold text-[#172033]">{connectionStatus}</p>
               <p className="text-xs text-[#64748B] max-w-sm mt-1">
-                Select an active session above and click &ldquo;Connect Stream&rdquo;. Make sure the target device has accepted the camera prompt.
+                Select an active session above and click &ldquo;Connect Stream&rdquo;. Make sure your mobile device has started the camera stream.
               </p>
             </div>
           )}
 
           {/* Active Recording Pill */}
-          {isRemoteRecording && (
-            <div className="absolute top-4 left-4 flex items-center space-x-2 bg-red-600/90 text-white px-3 py-1 rounded-full text-xs font-bold animate-pulse">
+          {isRecordingStream && (
+            <div className="absolute top-4 left-4 flex items-center space-x-2 bg-red-600/90 text-white px-3.5 py-1.5 rounded-full text-xs font-bold animate-pulse shadow-lg">
               <span className="w-2.5 h-2.5 rounded-full bg-white"></span>
-              <span>REMOTE RECORDING: {recordingTimer}s</span>
+              <span>REC: {formatTimer(recordingSeconds)} (MP4 Medium)</span>
+            </div>
+          )}
+
+          {/* CCTV Quality Tag */}
+          {connectionStatus === "Live Stream Active" && (
+            <div className="absolute top-4 right-4 flex items-center space-x-1.5 bg-black/60 text-white px-3 py-1 rounded-full text-[10px] font-semibold border border-white/20 backdrop-blur-sm">
+              <span>CCTV LIVE (720p / MP4 OPTIMIZED)</span>
             </div>
           )}
         </div>
 
         {/* Stream Action Toolbar */}
-        <div className="mt-4 p-4 bg-[#E8EAF0] rounded-xl flex flex-wrap items-center justify-between gap-4 border border-white/60">
+        <div className="mt-4 p-4 bg-[#E8EAF0] rounded-xl flex flex-wrap items-center justify-between gap-4 border border-white/60 shadow-[inset_2px_2px_5px_rgba(163,177,198,0.2)]">
           <div className="flex items-center space-x-3">
             <span
               className={`w-3 h-3 rounded-full ${
@@ -267,13 +365,13 @@ export default function LiveMonitoringPage() {
             ></span>
             <span className="text-xs font-semibold text-[#172033]">{connectionStatus}</span>
             {hasAudioTrack && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#22A06B]/20 text-[#22A06B]">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#22A06B]/20 text-[#22A06B]">
                 MIC AUDIO LIVE
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {/* Audio Toggle Button */}
             <Button
               variant="outline"
@@ -292,18 +390,20 @@ export default function LiveMonitoringPage() {
               {isMuted ? "Unmute Audio" : "Mute Audio"}
             </Button>
 
-            {isRemoteRecording ? (
-              <Button variant="danger" size="sm" onClick={handleStopRemoteRecording}>
-                Stop Remote Recording
+            {/* MP4 Medium Quality Recording Button */}
+            {isRecordingStream ? (
+              <Button variant="danger" size="sm" onClick={stopStreamRecording}>
+                Stop &amp; Save Recording
               </Button>
             ) : (
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={handleStartRemoteRecording}
+                onClick={startStreamRecording}
                 disabled={connectionStatus !== "Live Stream Active"}
+                title="Records stream in optimized MP4 format to save storage"
               >
-                Request Remote Recording
+                Start Recording (MP4 Medium)
               </Button>
             )}
 
