@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard" },
-  { label: "Devices", href: "/devices" },
   { label: "Sessions", href: "/sessions" },
   { label: "Live Monitoring", href: "/live" },
   { label: "Recordings", href: "/recordings" },
@@ -55,10 +54,10 @@ export default function DashboardLayout({
               <Link
                 key={item.href}
                 href={item.href}
-                className={`block px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                className={`block px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 select-none border ${
                   isActive
-                    ? "bg-[#E8EAF0] text-[#F28C28] font-bold shadow-[inset_3px_3px_6px_rgba(163,177,198,0.4),inset_-3px_-3px_6px_rgba(255,255,255,0.95)] border border-white/60"
-                    : "text-[#64748B] hover:text-[#172033] hover:shadow-[3px_3px_8px_rgba(163,177,198,0.3),-3px_-3px_8px_rgba(255,255,255,0.9)]"
+                    ? "bg-[#E8EAF0] text-[#F28C28] font-bold shadow-[inset_3px_3px_6px_rgba(163,177,198,0.4),inset_-3px_-3px_6px_rgba(255,255,255,0.95)] border-white/80"
+                    : "text-[#64748B] border-transparent hover:text-[#172033] hover:shadow-[3px_3px_8px_rgba(163,177,198,0.3),-3px_-3px_8px_rgba(255,255,255,0.9)] hover:border-white/40"
                 }`}
               >
                 {item.label}
@@ -80,7 +79,7 @@ export default function DashboardLayout({
           <Button
             variant="outline"
             size="sm"
-            className="w-full text-xs"
+            className="w-full text-xs font-bold text-[#E05A47] border border-red-200/80 bg-[#E8EAF0] shadow-[3px_3px_7px_rgba(224,90,71,0.2),-3px_-3px_7px_rgba(255,255,255,0.95)] hover:bg-[#FBEBE8] hover:text-[#C7402D] hover:border-red-300 active:shadow-[inset_2px_2px_4px_rgba(224,90,71,0.25)] transition-all duration-150 outline-none focus:outline-none focus:ring-0"
             onClick={handleSignOut}
           >
             Sign Out

@@ -3,8 +3,9 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+
+const LOCAL_STORAGE_KEY = "remotecam_settings";
 
 export default function SettingsPage() {
   const [videoQuality, setVideoQuality] = React.useState("720p");
@@ -12,14 +13,89 @@ export default function SettingsPage() {
   const [defaultExpiry, setDefaultExpiry] = React.useState(60);
   const [notifyOnConnect, setNotifyOnConnect] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(true);
 
-  const handleSave = (e: React.FormEvent) => {
+  // Load saved preferences on mount from localStorage (instant) and Database API (sync)
+  React.useEffect(() => {
+    // 1. Instant load from localStorage
+    try {
+      const cached = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.defaultVideoQuality) setVideoQuality(parsed.defaultVideoQuality);
+        if (typeof parsed.defaultAudioEnabled === "boolean") setDefaultAudio(parsed.defaultAudioEnabled);
+        if (parsed.defaultSessionExpiryMinutes) setDefaultExpiry(Number(parsed.defaultSessionExpiryMinutes));
+        if (typeof parsed.notifyOnConnect === "boolean") setNotifyOnConnect(parsed.notifyOnConnect);
+      }
+    } catch (e) {
+      console.warn("Failed to load cached settings:", e);
+    }
+
+    // 2. Fetch authoritative database settings from /api/settings
+    fetch("/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.settings) {
+          const s = data.settings;
+          setVideoQuality(s.defaultVideoQuality || "720p");
+          setDefaultAudio(Boolean(s.defaultAudioEnabled));
+          setDefaultExpiry(Number(s.defaultSessionExpiryMinutes || 60));
+          setNotifyOnConnect(Boolean(s.notifyOnConnect));
+
+          // Keep localStorage in sync
+          localStorage.setItem(
+            LOCAL_STORAGE_KEY,
+            JSON.stringify({
+              defaultVideoQuality: s.defaultVideoQuality,
+              defaultAudioEnabled: s.defaultAudioEnabled,
+              defaultSessionExpiryMinutes: s.defaultSessionExpiryMinutes,
+              notifyOnConnect: s.notifyOnConnect,
+            })
+          );
+        }
+      })
+      .catch((err) => console.error("Could not fetch remote settings:", err))
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
+
+    const payload = {
+      defaultVideoQuality: videoQuality,
+      defaultAudioEnabled: defaultAudio,
+      defaultSessionExpiryMinutes: Number(defaultExpiry),
+      notifyOnConnect: notifyOnConnect,
+    };
+
+    // 1. Immediately cache in localStorage so refresh never loses state
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(payload));
+    } catch (e) {
+      console.warn("LocalStorage save error:", e);
+    }
+
+    // 2. Persist to database via API
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to save settings on server");
+      }
+
       toast.success("Settings saved successfully!");
-    }, 600);
+    } catch (err: any) {
+      console.error(err);
+      // Even if API temporarily fails, localStorage is already updated
+      toast.success("Preferences saved locally!");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -30,7 +106,7 @@ export default function SettingsPage() {
           Platform Settings
         </h1>
         <p className="text-sm text-[#64748B] mt-1">
-          Customize your default camera parameters, streaming quality, and alerts.
+          Customize your default camera parameters, streaming quality, and link timeouts.
         </p>
       </div>
 
@@ -53,9 +129,9 @@ export default function SettingsPage() {
                 onChange={(e) => setVideoQuality(e.target.value)}
                 className="h-11 w-full rounded-xl bg-[#E8EAF0] border border-white/80 px-3 text-xs font-semibold text-[#172033] shadow-[inset_2px_2px_5px_rgba(163,177,198,0.35),inset_-2px_-2px_5px_rgba(255,255,255,0.95)] focus:outline-none"
               >
-                <option value="480p">480p SD (Low Bandwidth)</option>
-                <option value="720p">720p HD (Recommended)</option>
-                <option value="1080p">1080p Full HD (High Quality)</option>
+                <option value="480p">480p SD (Low Bandwidth - Storage Saver)</option>
+                <option value="720p">720p HD (Balanced - Recommended)</option>
+                <option value="1080p">1080p Full HD (Crisp High Quality)</option>
               </select>
             </div>
 
@@ -94,8 +170,8 @@ export default function SettingsPage() {
                 className="h-11 w-full rounded-xl bg-[#E8EAF0] border border-white/80 px-3 text-xs font-semibold text-[#172033] shadow-[inset_2px_2px_5px_rgba(163,177,198,0.35),inset_-2px_-2px_5px_rgba(255,255,255,0.95)] focus:outline-none"
               >
                 <option value={15}>15 Minutes (High Security)</option>
-                <option value={60}>1 Hour</option>
-                <option value={1440}>24 Hours</option>
+                <option value={60}>1 Hour (Standard)</option>
+                <option value={1440}>24 Hours (Full Day CCTV)</option>
               </select>
             </div>
 

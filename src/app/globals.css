@@ -35,6 +35,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Prevent unwanted browser focus borders and tap flashes on links and buttons */
+a, button {
+  -webkit-tap-highlight-color: transparent;
+}
+a:focus, a:focus-visible, button:focus, button:focus-visible {
+  outline: none !important;
+  box-shadow: none;
+}
+
 /* ----------------------------------------------------
  * Soft Neumorphic 3D Surfaces & Depth (Solid Colors Only)
  * ---------------------------------------------------- */

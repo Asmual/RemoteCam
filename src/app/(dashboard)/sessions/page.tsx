@@ -45,6 +45,19 @@ export default function SessionsPage() {
 
   React.useEffect(() => {
     fetchSessions();
+
+    // Sync default session expiry from user's saved preferences
+    try {
+      const cached = localStorage.getItem("remotecam_settings");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.defaultSessionExpiryMinutes) {
+          setExpiryMinutes(Number(parsed.defaultSessionExpiryMinutes));
+        }
+      }
+    } catch (e) {
+      console.warn("Could not load expiry preference:", e);
+    }
   }, []);
 
   const handleCreateSession = async () => {
