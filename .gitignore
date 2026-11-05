@@ -31,7 +31,6 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
-.env
 .env*.local
 !.env.example
 
@@ -44,9 +43,11 @@ next-env.d.ts
 .neon
 
 # Environment variables & secrets (added by GitHub Guardian)
-.env.*
 *.env
 !.env.sample
 .envrc
 .venv/
 venv/
+config.bat
+
+*.orc
