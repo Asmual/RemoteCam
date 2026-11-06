@@ -51,3 +51,9 @@ venv/
 config.bat
 
 *.orc
+
+.env
+.env.*
+.env.local
+.env.production
+.vscode/
